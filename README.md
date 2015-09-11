@@ -28,4 +28,8 @@ https://www.dropbox.com/s/z1qyowjfh3sqkx5/BitSeeds-Qt%20Non-AVX.zip?dl=1
 (try this one only if the first doesn’t work for you)
 
 
+Explorer:
+
+http://explore.cryptolife.net/bitseeds/index.php
+
 
