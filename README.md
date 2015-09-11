@@ -18,7 +18,7 @@ https://bitcointalk.org/index.php?topic=1028446
 Download links:
 
 Windows QT wallet application:
-https://www.dropbox.com/s/slogr661po1zega/bitseeds-1.2.zip?dl=1
+https://www.dropbox.com/s/nmbq3jwfehpravf/bitseeds-win-1.2.exe?dl=1
 
 Mac OS X QT wallet application for current Macs:
 https://www.dropbox.com/s/q8zqfhxfplegv7z/BitSeeds-Qt.zip?dl=1
@@ -28,8 +28,8 @@ https://www.dropbox.com/s/z1qyowjfh3sqkx5/BitSeeds-Qt%20Non-AVX.zip?dl=1
 (try this one only if the first doesn’t work for you)
 
 
-Explorer:
 
+Explorer:
 http://explore.cryptolife.net/bitseeds/index.php
 
 
