@@ -2,6 +2,7 @@ BitSeeds
 ========
 
 This is the official Bitseeds repository starting September 2015. 
+POW has been restored, mining will start again with block 8800
 
 Main website: 
 http://bitseeds.org
