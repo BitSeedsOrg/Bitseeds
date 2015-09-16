@@ -27,7 +27,9 @@ http://explore.cryptolife.net/bitseeds/index.php
 
 <p align=center><b>Bitseeds for Apple Macs:</b><br><a href="https://www.dropbox.com/s/q8zqfhxfplegv7z/BitSeeds-Qt.zip?dl=1"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-macs.gif"></a>        <a href="https://www.dropbox.com/s/z1qyowjfh3sqkx5/BitSeeds-Qt%20Non-AVX.zip?dl=1"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-macs-older.gif"></a></P>
 
-If you have an Mac made by Apple in 2012 or later, use the first Mac button. If you have an older Mac from 2011 or earlier, try the second download button.  If you're not sure, try the first one and if that doesn't run on your computer, use the second button instead.
+If you have an Mac made by Apple in 2012 or later, use the first Mac button. 
+If you have an older Mac from 2011 or earlier, try the second download button.  
+If you're not sure, try the first one and if that doesn't open, use the second button instead.
 
 </center>
 
