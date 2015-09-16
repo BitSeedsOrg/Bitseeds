@@ -14,8 +14,7 @@ You can find the ANN thread here:
 https://bitcointalk.org/index.php?topic=1028446
 
 (new thread coming soon)
-
-
+<a id="download-bitseeds" class="anchor" href="#download" aria-hidden="true">
 Download links:
 
 Windows QT wallet application:
