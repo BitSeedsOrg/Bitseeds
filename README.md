@@ -15,7 +15,7 @@ https://bitcointalk.org/index.php?topic=1028446
 
 (new thread coming soon)
 
-<a name="download-bitseeds">
+<a name="download-bitseeds"></a>
 Download links:
 
 Windows QT wallet application:
