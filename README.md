@@ -12,7 +12,7 @@ http://rainforestfoundation.org/bitseeds
 
 You can find the ANN threads here:
 https://cryptocointalk.com/topic/41665-new-ann-xseed-bitseeds-rainforest-foundation-charity-sha256-powpos-10/
-https://bitcointalk.org/index.php?topic=1028446 (older)
+https://bitcointalk.org/index.php?topic=1195172.0
 
 
 Bitseeds Blockchain Explorer:
