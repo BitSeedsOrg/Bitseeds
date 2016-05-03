@@ -1,0 +1,13 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=BitSeeds
+Comment=BitSeeds P2P Cryptocurrency
+Comment[ru]=BitSeeds, P2P криптовалюта
+Comment[fr]=BitSeeds, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=BitSeeds, eşten eşe kriptografik sanal para birimi
+Exec=/usr/bin/BitSeeds-qt
+Terminal=false
+Type=Application
+Icon=/usr/share/pixmaps/BitSeeds80.xpm
+MimeType=x-scheme-handler/BitSeeds;
+Categories=Office;

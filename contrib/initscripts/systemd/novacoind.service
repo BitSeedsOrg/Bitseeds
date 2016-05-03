@@ -1,0 +1,11 @@
+[Unit]
+Description=BitSeeds daemon serivce
+After=network.target
+
+[Service]
+Type=simple
+User=BitSeeds
+ExecStart=/opt/BitSeeds/BitSeedsd
+
+[Install]
+WantedBy=multi-user.target

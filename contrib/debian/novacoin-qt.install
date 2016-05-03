@@ -1,0 +1,5 @@
+BitSeeds-qt usr/bin
+share/pixmaps/BitSeeds32.xpm usr/share/pixmaps
+share/pixmaps/BitSeeds80.xpm usr/share/pixmaps
+debian/BitSeeds-qt.desktop usr/share/applications
+debian/BitSeeds-qt.protocol usr/share/kde4/services/

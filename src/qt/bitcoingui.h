@@ -3,20 +3,22 @@
 
 #include <QMainWindow>
 #include <QSystemTrayIcon>
-//#include <QWebFrame>
-
-#include <stdint.h>
 
 class TransactionTableModel;
 class ClientModel;
 class WalletModel;
 class TransactionView;
+class MintingView;
 class OverviewPage;
 class AddressBookPage;
 class SendCoinsDialog;
 class SignVerifyMessageDialog;
+class SecondAuthDialog;
+class MultisigDialog;
 class Notificator;
 class RPCConsole;
+class AboutDialog;
+class OptionsDialog;
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -60,58 +62,61 @@ private:
     ClientModel *clientModel;
     WalletModel *walletModel;
 
-    QToolBar *toolbar;
-
-    QStackedWidget *centralStackedWidget;
+    QStackedWidget *centralWidget;
 
     OverviewPage *overviewPage;
     QWidget *transactionsPage;
+    QWidget *mintingPage;
     AddressBookPage *addressBookPage;
     AddressBookPage *receiveCoinsPage;
     SendCoinsDialog *sendCoinsPage;
     SignVerifyMessageDialog *signVerifyMessageDialog;
-    QWidget *loungePage;
+    SecondAuthDialog *secondAuthDialog;
+    MultisigDialog *multisigPage;
 
     QLabel *labelEncryptionIcon;
-    QLabel *labelStakingIcon;
     QLabel *labelConnectionsIcon;
     QLabel *labelBlocksIcon;
+    QLabel *labelMiningIcon;
     QLabel *progressBarLabel;
     QProgressBar *progressBar;
 
     QMenuBar *appMenuBar;
     QAction *overviewAction;
     QAction *historyAction;
+    QAction *mintingAction;
     QAction *quitAction;
     QAction *sendCoinsAction;
     QAction *addressBookAction;
-    QAction *loungeAction;
     QAction *signMessageAction;
     QAction *verifyMessageAction;
+    QAction *secondAuthAction;
+    QAction *multisigAction;
     QAction *aboutAction;
     QAction *receiveCoinsAction;
     QAction *optionsAction;
     QAction *toggleHideAction;
     QAction *exportAction;
     QAction *encryptWalletAction;
-    QAction *backupWalletAction;
-    QAction *changePassphraseAction;
-    QAction *unlockWalletAction;
     QAction *lockWalletAction;
+    QAction *unlockWalletAction;
+    QAction *unlockWalletMiningAction;
+    QAction *backupWalletAction;
+    QAction *dumpWalletAction;
+    QAction *importWalletAction;
+    QAction *changePassphraseAction;
     QAction *aboutQtAction;
     QAction *openRPCConsoleAction;
 
     QSystemTrayIcon *trayIcon;
     Notificator *notificator;
     TransactionView *transactionView;
+    MintingView *mintingView;
     RPCConsole *rpcConsole;
+    AboutDialog *aboutDialog;
+    OptionsDialog *optionsDialog;
 
     QMovie *syncIconMovie;
-
-    uint64_t nWeight;
-
-    bool loungeInit;
-    //QWebFrame * loungeFrame;
 
     /** Create the main UI actions. */
     void createActions();
@@ -127,6 +132,8 @@ public slots:
     void setNumConnections(int count);
     /** Set number of blocks shown in the UI */
     void setNumBlocks(int count, int nTotalBlocks);
+    /** Set stake miner status in the UI */
+    void updateMining();
     /** Set the encryption status as shown in the UI.
        @param[in] status            current encryption status
        @see WalletModel::EncryptionStatus
@@ -135,6 +142,8 @@ public slots:
 
     /** Notify the user of an error in the network or transaction handling code. */
     void error(const QString &title, const QString &message, bool modal);
+    void message(const QString &title, const QString &message, unsigned int style, const QString &detail=QString());
+
     /** Asks the user whether to pay the transaction fee or to cancel the transaction.
        It is currently not possible to pass a return value to another thread through
        BlockingQueuedConnection, so an indirected pointer is used.
@@ -146,24 +155,29 @@ public slots:
     void askFee(qint64 nFeeRequired, bool *payFee);
     void handleURI(QString strURI);
 
+    void gotoMultisigPage();
+
 private slots:
     /** Switch to overview (home) page */
     void gotoOverviewPage();
     /** Switch to history (transactions) page */
     void gotoHistoryPage();
+    /** Switch to minting page */
+    void gotoMintingPage();
     /** Switch to address book page */
     void gotoAddressBookPage();
     /** Switch to receive coins page */
     void gotoReceiveCoinsPage();
     /** Switch to send coins page */
     void gotoSendCoinsPage();
-    void gotoloungePage();
-
 
     /** Show Sign/Verify Message dialog and switch to sign message tab */
     void gotoSignMessageTab(QString addr = "");
     /** Show Sign/Verify Message dialog and switch to verify message tab */
     void gotoVerifyMessageTab(QString addr = "");
+
+    /** Show Second Auth dialog */
+    void gotoSecondAuthPage(QString addr = "");
 
     /** Show configuration dialog */
     void optionsClicked();
@@ -179,23 +193,24 @@ private slots:
     */
     void incomingTransaction(const QModelIndex & parent, int start, int end);
     /** Encrypt the wallet */
-    void encryptWallet();
+    void encryptWallet(bool status);
     /** Backup the wallet */
     void backupWallet();
     /** Change encrypted wallet passphrase */
+
+    void dumpWallet();
+    void importWallet();
+
     void changePassphrase();
     /** Ask for passphrase to unlock wallet temporarily */
-    void unlockWallet();
-
     void lockWallet();
+    void unlockWallet();
+    void unlockWalletMining(bool status);
 
     /** Show window if hidden, unminimize when minimized, rise when obscured or show if hidden and fToggleHidden is true */
     void showNormalIfMinimized(bool fToggleHidden = false);
     /** simply calls showNormalIfMinimized(true) for use in SLOT() macro */
     void toggleHidden();
-
-    void updateWeight();
-    void updateStakingIcon();
 };
 
 #endif

@@ -20,7 +20,7 @@ using namespace boost;
 
 
 unsigned int nWalletDBUpdated;
-
+extern bool fUseMemoryLog;
 
 
 //
@@ -78,7 +78,7 @@ bool CDBEnv::Open(boost::filesystem::path pathEnv_)
     if (GetBoolArg("-privdb", true))
         nEnvFlags |= DB_PRIVATE;
 
-    int nDbCache = GetArg("-dbcache", 25);
+    int nDbCache = GetArgInt("-dbcache", 25);
     dbenv.set_lg_dir(pathLogDir.string().c_str());
     dbenv.set_cachesize(nDbCache / 1024, (nDbCache % 1024)*1048576, 1);
     dbenv.set_lg_bsize(1048576);
@@ -111,6 +111,31 @@ bool CDBEnv::Open(boost::filesystem::path pathEnv_)
     fDbEnvInit = true;
     fMockDb = false;
 
+#ifndef USE_LEVELDB
+    // Check that the number of locks is sufficient (to prevent chain fork possibility, read http://bitcoin.org/may15 for more info)
+    u_int32_t nMaxLocks;
+    if (!dbenv.get_lk_max_locks(&nMaxLocks))
+    {
+        int nBlocks, nDeepReorg;
+        std::string strMessage;
+
+        nBlocks = nMaxLocks / 48768;
+        nDeepReorg = (nBlocks - 1) / 2;
+
+        printf("Final lk_max_locks is %lu, sufficient for (worst case) %d block%s in a single transaction (up to a %d-deep reorganization)\n", (unsigned long)nMaxLocks, nBlocks, (nBlocks == 1) ? "" : "s", nDeepReorg);
+        if (nDeepReorg < 3)
+        {
+            if (nBlocks < 1)
+                strMessage = strprintf(_("Warning: DB_CONFIG has set_lk_max_locks %lu, which may be too low for a single block. If this limit is reached, BitSeeds may stop working."), (unsigned long)nMaxLocks);
+            else
+                strMessage = strprintf(_("Warning: DB_CONFIG has set_lk_max_locks %lu, which may be too low for a common blockchain reorganization. If this limit is reached, BitSeeds may stop working."), (unsigned long)nMaxLocks);
+
+            strMiscWarning = strMessage;
+            printf("*** %s\n", strMessage.c_str());
+        }
+    }
+#endif
+
     return true;
 }
 
@@ -131,7 +156,7 @@ void CDBEnv::MakeMock()
     dbenv.set_lk_max_objects(10000);
     dbenv.set_flags(DB_AUTO_COMMIT, 1);
 #ifdef DB_LOG_IN_MEMORY
-    dbenv.log_set_config(DB_LOG_IN_MEMORY, 1);
+    dbenv.log_set_config(DB_LOG_IN_MEMORY, fUseMemoryLog ? 1 : 0);
 #endif
     int ret = dbenv.open(NULL,
                      DB_CREATE     |
@@ -179,18 +204,9 @@ bool CDBEnv::Salvage(std::string strFile, bool fAggressive,
 
     Db db(&dbenv, 0);
     int result = db.verify(strFile.c_str(), NULL, &strDump, flags);
-    if (result == DB_VERIFY_BAD)
+    if (result != 0)
     {
-        printf("Error: Salvage found errors, all data may not be recoverable.\n");
-        if (!fAggressive)
-        {
-            printf("Error: Rerun with aggressive mode to ignore errors and continue.\n");
-            return false;
-        }
-    }
-    if (result != 0 && result != DB_VERIFY_BAD)
-    {
-        printf("ERROR: db salvage failed: %d\n",result);
+        printf("ERROR: db salvage failed\n");
         return false;
     }
 
@@ -238,7 +254,7 @@ CDB::CDB(const char *pszFile, const char* pszMode) :
         return;
 
     fReadOnly = (!strchr(pszMode, '+') && !strchr(pszMode, 'w'));
-    bool fCreate = strchr(pszMode, 'c');
+    bool fCreate = strchr(pszMode, 'c') != NULL;
     unsigned int nFlags = DB_THREAD;
     if (fCreate)
         nFlags |= DB_CREATE;
@@ -293,6 +309,14 @@ CDB::CDB(const char *pszFile, const char* pszMode) :
     }
 }
 
+static bool IsChainFile(std::string strFile)
+{
+    if (strFile == "blkindex.dat")
+        return true;
+
+    return false;
+}
+
 void CDB::Close()
 {
     if (!pdb)
@@ -306,8 +330,12 @@ void CDB::Close()
     unsigned int nMinutes = 0;
     if (fReadOnly)
         nMinutes = 1;
+    if (IsChainFile(strFile))
+        nMinutes = 2;
+    if (IsChainFile(strFile) && IsInitialBlockDownload())
+        nMinutes = 5;
 
-    bitdb.dbenv.txn_checkpoint(nMinutes ? GetArg("-dblogsize", 100)*1024 : 0, nMinutes, 0);
+    bitdb.dbenv.txn_checkpoint(nMinutes ? GetArgUInt("-dblogsize", 100)*1024 : 0, nMinutes, 0);
 
     {
         LOCK(bitdb.cs_db);
@@ -427,7 +455,7 @@ bool CDB::Rewrite(const string& strFile, const char* pszSkip)
                 return fSuccess;
             }
         }
-        MilliSleep(100);
+        Sleep(100);
     }
     return false;
 }
@@ -455,16 +483,18 @@ void CDBEnv::Flush(bool fShutdown)
                 CloseDb(strFile);
                 printf("%s checkpoint\n", strFile.c_str());
                 dbenv.txn_checkpoint(0, 0, 0);
-                printf("%s detach\n", strFile.c_str());
-                if (!fMockDb)
-                    dbenv.lsn_reset(strFile.c_str(), 0);
+                if (!IsChainFile(strFile) || fDetachDB) {
+                    printf("%s detach\n", strFile.c_str());
+                    if (!fMockDb)
+                        dbenv.lsn_reset(strFile.c_str(), 0);
+                }
                 printf("%s closed\n", strFile.c_str());
                 mapFileUseCount.erase(mi++);
             }
             else
                 mi++;
         }
-        printf("DBFlush(%s)%s ended %15"PRId64"ms\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started", GetTimeMillis() - nStart);
+        printf("DBFlush(%s)%s ended %15" PRId64 "ms\n", fShutdown ? "true" : "false", fDbEnvInit ? "" : " db not started", GetTimeMillis() - nStart);
         if (fShutdown)
         {
             char** listp;
@@ -513,7 +543,7 @@ bool CAddrDB::Write(const CAddrMan& addr)
     try {
         fileout << ssPeers;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         return error("CAddrman::Write() : I/O error");
     }
     FileCommit(fileout);
@@ -535,9 +565,9 @@ bool CAddrDB::Read(CAddrMan& addr)
         return error("CAddrman::Read() : open failed");
 
     // use file size to size memory buffer
-    int fileSize = boost::filesystem::file_size(pathAddr);
+    int fileSize = GetFilesize(filein);
     int dataSize = fileSize - sizeof(uint256);
-    // Don't try to resize to a negative number if file is small
+    //Don't try to resize to a negative number if file is small
     if ( dataSize < 0 ) dataSize = 0;
     vector<unsigned char> vchData;
     vchData.resize(dataSize);
@@ -548,7 +578,7 @@ bool CAddrDB::Read(CAddrMan& addr)
         filein.read((char *)&vchData[0], dataSize);
         filein >> hashIn;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         return error("CAddrman::Read() 2 : I/O error or stream data corrupted");
     }
     filein.fclose();
@@ -572,7 +602,7 @@ bool CAddrDB::Read(CAddrMan& addr)
         // de-serialize address data into one CAddrMan object
         ssPeers >> addr;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         return error("CAddrman::Read() : I/O error or stream data corrupted");
     }
 

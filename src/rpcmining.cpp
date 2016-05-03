@@ -8,19 +8,39 @@
 #include "txdb.h"
 #include "init.h"
 #include "miner.h"
+#include "kernel.h"
 #include "bitcoinrpc.h"
+
+#include <boost/format.hpp>
+#include <boost/assign/list_of.hpp>
+#include <boost/iterator/counting_iterator.hpp>
 
 using namespace json_spirit;
 using namespace std;
 
+extern uint256 nPoWBase;
+extern uint64_t nStakeInputsMapSize;
+
 Value getsubsidy(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() > 1)
+    if (fHelp || params.size() > 1 || fHelp || params.size() < 99 )
         throw runtime_error(
             "getsubsidy [nTarget]\n"
-            "Returns proof-of-work subsidy value for the specified value of target.");
+            "Currently not in use.");
 
-    return (uint64_t)GetProofOfWorkReward((int)nBestHeight, 0);
+    unsigned int nBits = 0;
+
+    if (params.size() != 0)
+    {
+        CBigNum bnTarget(uint256(params[0].get_str()));
+        nBits = bnTarget.GetCompact();
+    }
+    else
+    {
+        nBits = GetNextTargetRequired(pindexBest, false);
+    }
+
+    return (uint64_t)GetProofOfWorkReward(nBits, 0, 0);
 }
 
 Value getmininginfo(const Array& params, bool fHelp)
@@ -29,9 +49,6 @@ Value getmininginfo(const Array& params, bool fHelp)
         throw runtime_error(
             "getmininginfo\n"
             "Returns an object containing mining-related information.");
-
-    uint64_t nWeight = 0;
-    pwalletMain->GetStakeWeight(nWeight);
 
     Object obj, diff, weight;
     obj.push_back(Pair("blocks",        (int)nBestHeight));
@@ -43,55 +60,174 @@ Value getmininginfo(const Array& params, bool fHelp)
     diff.push_back(Pair("search-interval",      (int)nLastCoinStakeSearchInterval));
     obj.push_back(Pair("difficulty",    diff));
 
-    obj.push_back(Pair("blockvalue",    (uint64_t)GetProofOfWorkReward((int)nBestHeight, 0)));
-    obj.push_back(Pair("netmhashps",     GetPoWMHashPS()));
-    obj.push_back(Pair("netstakeweight", GetPoSKernelPS()));
+    obj.push_back(Pair("blockvalue",    (uint64_t)GetProofOfWorkReward(GetLastBlockIndex(pindexBest, false)->nBits, 0, pindexBest->nHeight)));
+    obj.push_back(Pair("netmhashps",    GetPoWMHashPS()));
+    obj.push_back(Pair("netstakeweight",GetPoSKernelPS()));
     obj.push_back(Pair("errors",        GetWarnings("statusbar")));
     obj.push_back(Pair("pooledtx",      (uint64_t)mempool.size()));
 
-    weight.push_back(Pair("minimum",    (uint64_t)nWeight));
-    weight.push_back(Pair("maximum",    (uint64_t)0));
-    weight.push_back(Pair("combined",  (uint64_t)nWeight));
-    obj.push_back(Pair("stakeweight", weight));
+    obj.push_back(Pair("stakeinputs",   (uint64_t)nStakeInputsMapSize));
+    obj.push_back(Pair("stakeinterest", GetProofOfStakeReward(0, GetLastBlockIndex(pindexBest, true)->nBits, GetLastBlockIndex(pindexBest, true)->nTime, true)));
 
-    obj.push_back(Pair("stakeinterest",    (uint64_t)COIN_YEAR_REWARD));
     obj.push_back(Pair("testnet",       fTestNet));
     return obj;
 }
 
-Value getstakinginfo(const Array& params, bool fHelp)
+// scaninput '{"txid":"95d640426fe66de866a8cf2d0601d2c8cf3ec598109b4d4ffa7fd03dad6d35ce","difficulty":0.01, "days":10}'
+Value scaninput(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() != 0)
+    if (fHelp || params.size() != 1)
         throw runtime_error(
-            "getstakinginfo\n"
-            "Returns an object containing staking-related information.");
+            "scaninput '{\"txid\":\"txid\", \"vout\":[vout1, vout2, ..., voutN], \"difficulty\":difficulty, \"days\":days}'\n"
+            "Scan specified transaction or input for suitable kernel solutions.\n"
+            "    difficulty - upper limit for difficulty, current difficulty by default;\n"
+            "    days - time window, 90 days by default.\n"
+        );
 
-    uint64_t nWeight = 0;
-    pwalletMain->GetStakeWeight(nWeight);
+    RPCTypeCheck(params, boost::assign::list_of(obj_type));
 
-    uint64_t nNetworkWeight = GetPoSKernelPS();
-    bool staking = nLastCoinStakeSearchInterval && nWeight;
-    uint64_t nExpectedTime = staking ? (GetTargetSpacing(nBestHeight) * nNetworkWeight / nWeight) : 0;
+    Object scanParams = params[0].get_obj();
 
-    Object obj;
+    const Value& txid_v = find_value(scanParams, "txid");
+    if (txid_v.type() != str_type)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, missing txid key");
 
-    obj.push_back(Pair("enabled", GetBoolArg("-staking", true)));
-    obj.push_back(Pair("staking", staking));
-    obj.push_back(Pair("errors", GetWarnings("statusbar")));
+    string txid = txid_v.get_str();
+    if (!IsHex(txid))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected hex txid");
 
-    obj.push_back(Pair("currentblocksize", (uint64_t)nLastBlockSize));
-    obj.push_back(Pair("currentblocktx", (uint64_t)nLastBlockTx));
-    obj.push_back(Pair("pooledtx", (uint64_t)mempool.size()));
+    uint256 hash(txid);
+    int32_t nDays = 90;
+    uint32_t nBits = GetNextTargetRequired(pindexBest, true);
 
-    obj.push_back(Pair("difficulty", GetDifficulty(GetLastBlockIndex(pindexBest, true))));
-    obj.push_back(Pair("search-interval", (int)nLastCoinStakeSearchInterval));
+    const Value& diff_v = find_value(scanParams, "difficulty");
+    if (diff_v.type() == real_type || diff_v.type() == int_type)
+    {
+        double dDiff = diff_v.get_real();
+        if (dDiff <= 0)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, diff must be greater than zero");
 
-    obj.push_back(Pair("weight", (uint64_t)nWeight));
-    obj.push_back(Pair("netstakeweight", (uint64_t)nNetworkWeight));
+        CBigNum bnTarget(nPoWBase);
+        bnTarget *= 1000;
+        bnTarget /= (int) (dDiff * 1000);
+        nBits = bnTarget.GetCompact();
+    }
 
-    obj.push_back(Pair("expectedtime", nExpectedTime));
+    const Value& days_v = find_value(scanParams, "days");
+    if (days_v.type() == int_type)
+    {
+        nDays = days_v.get_int();
+        if (nDays <= 0)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, interval length must be greater than zero");
+    }
 
-    return obj;
+
+    CTransaction tx;
+    uint256 hashBlock = 0;
+    if (GetTransaction(hash, tx, hashBlock))
+    {
+        if (hashBlock == 0)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unable to find transaction in the blockchain");
+
+        vector<int> vInputs(0);
+        const Value& inputs_v = find_value(scanParams, "vout");
+        if (inputs_v.type() == array_type)
+        {
+            Array inputs = inputs_v.get_array();
+            BOOST_FOREACH(const Value &v_out, inputs)
+            {
+                int nOut = v_out.get_int();
+                if (nOut < 0 || nOut > (int)tx.vout.size() - 1)
+                {
+                    stringstream strErrorMsg;
+                    strErrorMsg << boost::format("Invalid parameter, input number %d is out of range") % nOut;
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, strErrorMsg.str());
+                }
+
+                vInputs.push_back(nOut);
+            }
+        }
+        else if(inputs_v.type() == int_type)
+        {
+            int nOut = inputs_v.get_int();
+            if (nOut < 0 || nOut > (int)tx.vout.size() - 1)
+            {
+                stringstream strErrorMsg;
+                strErrorMsg << boost::format("Invalid parameter, input number %d is out of range") % nOut;
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strErrorMsg.str());
+            }
+
+            vInputs.push_back(nOut);
+        }
+        else
+        {
+            vInputs = vector<int>(boost::counting_iterator<int>( 0 ), boost::counting_iterator<int>( tx.vout.size() ));
+        }
+
+        CTxDB txdb("r");
+
+        CBlock block;
+        CTxIndex txindex;
+
+        // Load transaction index item
+        if (!txdb.ReadTxIndex(tx.GetHash(), txindex))
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unable to read block index item");
+
+        // Read block header
+        if (!block.ReadFromDisk(txindex.pos.nFile, txindex.pos.nBlockPos, false))
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "CBlock::ReadFromDisk() failed");
+
+        uint64_t nStakeModifier = 0;
+        if (!GetKernelStakeModifier(block.GetHash(), nStakeModifier))
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No kernel stake modifier generated yet");
+
+        std::pair<uint32_t, uint32_t> interval;
+        interval.first = GetTime();
+        // Only count coins meeting min age requirement
+        if (nStakeMinAge + block.nTime > interval.first)
+            interval.first += (nStakeMinAge + block.nTime - interval.first);
+        interval.second = interval.first + nDays * nOneDay;
+
+        Array results;
+        BOOST_FOREACH(const int &nOut, vInputs)
+        {
+            // Check for spent flag
+            // It doesn't make sense to scan spent inputs.
+            if (!txindex.vSpent[nOut].IsNull())
+                continue;
+
+            // Skip zero value outputs
+            if (tx.vout[nOut].nValue == 0)
+                continue;
+
+            // Build static part of kernel
+            CDataStream ssKernel(SER_GETHASH, 0);
+            ssKernel << nStakeModifier;
+            ssKernel << block.nTime << (txindex.pos.nTxPos - txindex.pos.nBlockPos) << tx.nTime << nOut;
+            CDataStream::const_iterator itK = ssKernel.begin();
+
+            std::vector<std::pair<uint256, uint32_t> > result;
+            if (ScanKernelForward((unsigned char *)&itK[0], nBits, tx.nTime, tx.vout[nOut].nValue, interval, result))
+            {
+                BOOST_FOREACH(const PAIRTYPE(uint256, uint32_t) solution, result)
+                {
+                    Object item;
+                    item.push_back(Pair("nout", nOut));
+                    item.push_back(Pair("hash", solution.first.GetHex()));
+                    item.push_back(Pair("time", DateTimeStrFormat(solution.second)));
+
+                    results.push_back(item);
+                }
+            }
+        }
+
+        if (results.size() == 0)
+            return false;
+
+        return results;
+    }
+    else
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction");
 }
 
 Value getworkex(const Array& params, bool fHelp)
@@ -107,8 +243,8 @@ Value getworkex(const Array& params, bool fHelp)
 
     if (IsInitialBlockDownload())
         throw JSONRPCError(-10, "BitSeeds is downloading blocks...");
-
-    if (pindexBest->nHeight >= LAST_POW_BLOCK && pindexBest->nHeight < ENABLE_POW_AGAIN)
+		
+	if (pindexBest->nHeight >= LAST_POW_BLOCK)
         throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
 
     typedef map<uint256, pair<CBlock*, CScript> > mapNewBlock_t;
@@ -146,7 +282,7 @@ Value getworkex(const Array& params, bool fHelp)
         }
 
         // Update nTime
-        pblock->nTime = max(pindexPrev->GetPastTimeLimit()+1, GetAdjustedTime());
+        pblock->nTime = max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
         pblock->nNonce = 0;
 
         // Update nExtraNonce
@@ -242,9 +378,9 @@ Value getwork(const Array& params, bool fHelp)
     if (IsInitialBlockDownload())
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "BitSeeds is downloading blocks...");
 
-    if (pindexBest->nHeight >= LAST_POW_BLOCK && pindexBest->nHeight < ENABLE_POW_AGAIN)
-        throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
-
+	if (pindexBest->nHeight >= LAST_POW_BLOCK)
+        throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");	
+		
     typedef map<uint256, pair<CBlock*, CScript> > mapNewBlock_t;
     static mapNewBlock_t mapNewBlock;    // FIXME: thread safety
     static vector<CBlock*> vNewBlock;
@@ -386,9 +522,9 @@ Value getblocktemplate(const Array& params, bool fHelp)
     if (IsInitialBlockDownload())
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "BitSeeds is downloading blocks...");
 
-    if (pindexBest->nHeight >= LAST_POW_BLOCK && pindexBest->nHeight < ENABLE_POW_AGAIN)
-        throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
-
+    if (pindexBest->nHeight >= LAST_POW_BLOCK)
+        throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");		
+		
     static CReserveKey reservekey(pwalletMain);
 
     // Update block
@@ -460,8 +596,8 @@ Value getblocktemplate(const Array& params, bool fHelp)
             }
             entry.push_back(Pair("depends", deps));
 
-            int64_t nSigOps = GetLegacySigOpCount(tx);
-            nSigOps += GetP2SHSigOpCount(tx, mapInputs);
+            int64_t nSigOps = tx.GetLegacySigOpCount();
+            nSigOps += tx.GetP2SHSigOpCount(mapInputs);
             entry.push_back(Pair("sigops", nSigOps));
         }
 
@@ -488,13 +624,13 @@ Value getblocktemplate(const Array& params, bool fHelp)
     result.push_back(Pair("coinbaseaux", aux));
     result.push_back(Pair("coinbasevalue", (int64_t)pblock->vtx[0].vout[0].nValue));
     result.push_back(Pair("target", hashTarget.GetHex()));
-    result.push_back(Pair("mintime", (int64_t)pindexPrev->GetPastTimeLimit()+1));
+    result.push_back(Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1));
     result.push_back(Pair("mutable", aMutable));
     result.push_back(Pair("noncerange", "00000000ffffffff"));
     result.push_back(Pair("sigoplimit", (int64_t)MAX_BLOCK_SIGOPS));
     result.push_back(Pair("sizelimit", (int64_t)MAX_BLOCK_SIZE));
     result.push_back(Pair("curtime", (int64_t)pblock->nTime));
-    result.push_back(Pair("bits", strprintf("%08x", pblock->nBits)));
+    result.push_back(Pair("bits", HexBits(pblock->nBits)));
     result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight+1)));
 
     return result;
@@ -515,7 +651,7 @@ Value submitblock(const Array& params, bool fHelp)
     try {
         ssBlock >> block;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
     }
 

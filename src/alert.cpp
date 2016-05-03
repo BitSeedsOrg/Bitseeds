@@ -2,9 +2,6 @@
 // Alert system
 //
 
-#include <algorithm>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/replace.hpp>
 #include <boost/foreach.hpp>
 #include <map>
 
@@ -19,10 +16,13 @@ using namespace std;
 map<uint256, CAlert> mapAlerts;
 CCriticalSection cs_mapAlerts;
 
-static const char* pszMainKey = "040b335169349101261bf9dd5fc3c7bd7a8f865ebb72380d2b28297978003c8894570cc1a8bc3d843a60b9f2f265f70de8256892ad2ffec0ba9c71e00d45da6d7f";
+static const char* pszMainKey = "042f56613bded9b1c1c68d515e0a421e54234454f534558169fbac9692893063057beccf583637ecee82696925cc0a6ceb441ff48efccd2dbeffd6bc30b1151de0";
 
 // TestNet alerts pubKey
-static const char* pszTestKey = "04f2970ff87a6bb87b67c9fc8954296aa89b31c1c12157f82a8a9bfad836d77c3cd2aa6456a34c59b29f23824e72e9950319558fb7b440afca5dfb02132ad0f6a1";
+static const char* pszTestKey = "0471dc165db480094d35cde15b1f5d755fa6ad6f2b5ed0e340e3f17f57389c3c2af113a8cbcc885bde73305a553b5640c83021128008ddf882e856336269080496";
+
+// TestNet alerts private key
+// "308201130201010420b665cff1884e53da26376fd1b433812c9a5a8a4d5221533b15b9629789bb7e42a081a53081a2020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f300604010004010704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141020101a1440342000471dc165db490094d35cde15b1f5d755fa6ad6f2b5ed0f340e3f17f57389c3c2af113a8cbcc885bde73305a553b5640c83021128008ddf882e856336269080496"
 
 void CUnsignedAlert::SetNull()
 {
@@ -53,8 +53,8 @@ std::string CUnsignedAlert::ToString() const
     return strprintf(
         "CAlert(\n"
         "    nVersion     = %d\n"
-        "    nRelayUntil  = %"PRId64"\n"
-        "    nExpiration  = %"PRId64"\n"
+        "    nRelayUntil  = %" PRId64 "\n"
+        "    nExpiration  = %" PRId64 "\n"
         "    nID          = %d\n"
         "    nCancel      = %d\n"
         "    setCancel    = %s\n"
@@ -130,6 +130,9 @@ bool CAlert::RelayTo(CNode* pnode) const
 {
     if (!IsInEffect())
         return false;
+    // don't relay to nodes which haven't sent their version message
+    if (pnode->nVersion == 0)
+        return false;
     // returns true if wasn't already contained in the set
     if (pnode->setKnown.insert(GetHash()).second)
     {
@@ -170,7 +173,7 @@ CAlert CAlert::getAlertByHash(const uint256 &hash)
     return retval;
 }
 
-bool CAlert::ProcessAlert(bool fThread)
+bool CAlert::ProcessAlert()
 {
     if (!CheckSignature())
         return false;
@@ -234,35 +237,9 @@ bool CAlert::ProcessAlert(bool fThread)
 
         // Add to mapAlerts
         mapAlerts.insert(make_pair(GetHash(), *this));
-        // Notify UI and -alertnotify if it applies to me
+        // Notify UI if it applies to me
         if(AppliesToMe())
-        {
             uiInterface.NotifyAlertChanged(GetHash(), CT_NEW);
-            std::string strCmd = GetArg("-alertnotify", "");
-            if (!strCmd.empty())
-            {
-                // Alert text should be plain ascii coming from a trusted source, but to
-                // be safe we first strip anything not in safeChars, then add single quotes around
-                // the whole string before passing it to the shell:
-                std::string singleQuote("'");
-                // safeChars chosen to allow simple messages/URLs/email addresses, but avoid anything
-                // even possibly remotely dangerous like & or >
-                std::string safeChars("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890 .,;_/:?@");
-                std::string safeStatus;
-                for (std::string::size_type i = 0; i < strStatusBar.size(); i++)
-                {
-                    if (safeChars.find(strStatusBar[i]) != std::string::npos)
-                        safeStatus.push_back(strStatusBar[i]);
-                }
-                safeStatus = singleQuote+safeStatus+singleQuote;
-                boost::replace_all(strCmd, "%s", safeStatus);
-
-                if (fThread)
-                    boost::thread t(runCommand, strCmd); // thread runs free
-                else
-                    runCommand(strCmd);
-            }
-        }
     }
 
     printf("accepted alert %d, AppliesToMe()=%d\n", nID, AppliesToMe());

@@ -10,8 +10,12 @@
 #include <QDoubleValidator>
 #include <QFont>
 #include <QLineEdit>
+#if QT_VERSION >= 0x050000
+#include <QUrlQuery>
+#else
 #include <QUrl>
-#include <QTextDocument> // For Qt::escape
+#endif
+#include <QTextDocument> // For Qt::mightBeRichText
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QClipboard>
@@ -19,8 +23,13 @@
 #include <QDesktopServices>
 #include <QThread>
 
+#ifndef Q_MOC_RUN
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+#if BOOST_FILESYSTEM_VERSION >= 3
+#include <boost/filesystem/detail/utf8_codecvt_facet.hpp>
+#endif
+#endif
 
 #ifdef WIN32
 #ifdef _WIN32_WINNT
@@ -40,7 +49,32 @@
 #include "shellapi.h"
 #endif
 
+#if BOOST_FILESYSTEM_VERSION >= 3
+static boost::filesystem::detail::utf8_codecvt_facet utf8;
+#endif
+
 namespace GUIUtil {
+
+#if BOOST_FILESYSTEM_VERSION >= 3
+boost::filesystem::path qstringToBoostPath(const QString &path)
+{
+    return boost::filesystem::path(path.toStdString(), utf8);
+}
+QString boostPathToQString(const boost::filesystem::path &path)
+{
+    return QString::fromStdString(path.string(utf8));
+}
+#else
+#warning Conversion between boost path and QString can use invalid character encoding with boost_filesystem v2 and older
+boost::filesystem::path qstringToBoostPath(const QString &path)
+{
+    return boost::filesystem::path(path.toStdString());
+}
+QString boostPathToQString(const boost::filesystem::path &path)
+{
+    return QString::fromStdString(path.string());
+}
+#endif
 
 QString dateTimeStr(const QDateTime &date)
 {
@@ -55,11 +89,7 @@ QString dateTimeStr(qint64 nTime)
 QFont bitcoinAddressFont()
 {
     QFont font("Monospace");
-#if QT_VERSION >= 0x040800
-    font.setStyleHint(QFont::Monospace);
-#else
     font.setStyleHint(QFont::TypeWriter);
-#endif
     return font;
 }
 
@@ -81,14 +111,19 @@ void setupAmountWidget(QLineEdit *widget, QWidget *parent)
 
 bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out)
 {
-    // NovaCoin: check prefix
-    if(uri.scheme() != QString("bitseeds"))
+    // BitSeeds: check prefix
+    if(uri.scheme() != QString("BitSeeds"))
         return false;
 
     SendCoinsRecipient rv;
     rv.address = uri.path();
     rv.amount = 0;
+#if QT_VERSION < 0x050000
     QList<QPair<QString, QString> > items = uri.queryItems();
+#else
+    QUrlQuery uriQuery(uri);
+    QList<QPair<QString, QString> > items = uriQuery.queryItems();
+#endif
     for (QList<QPair<QString, QString> >::iterator i = items.begin(); i != items.end(); i++)
     {
         bool fShouldReturnFalse = false;
@@ -127,13 +162,13 @@ bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out)
 
 bool parseBitcoinURI(QString uri, SendCoinsRecipient *out)
 {
-    // Convert bitseeds:// to bitseeds:
+    // Convert BitSeeds:// to BitSeeds:
     //
     //    Cannot handle this later, because bitcoin:// will cause Qt to see the part after // as host,
     //    which will lower-case it (and thus invalidate the address).
-    if(uri.startsWith("bitseeds://"))
+    if(uri.startsWith("BitSeeds://"))
     {
-        uri.replace(0, 12, "bitseeds:");
+        uri.replace(0, 10, "BitSeeds:");
     }
     QUrl uriInstance(uri);
     return parseBitcoinURI(uriInstance, out);
@@ -141,7 +176,11 @@ bool parseBitcoinURI(QString uri, SendCoinsRecipient *out)
 
 QString HtmlEscape(const QString& str, bool fMultiLine)
 {
+#if QT_VERSION < 0x050000
     QString escaped = Qt::escape(str);
+#else
+    QString escaped = str.toHtmlEscaped();
+#endif
     if(fMultiLine)
     {
         escaped = escaped.replace("\n", "<br>\n");
@@ -176,7 +215,11 @@ QString getSaveFileName(QWidget *parent, const QString &caption,
     QString myDir;
     if(dir.isEmpty()) // Default to user documents location
     {
+#if QT_VERSION < 0x050000
         myDir = QDesktopServices::storageLocation(QDesktopServices::DocumentsLocation);
+#else
+        myDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+#endif
     }
     else
     {
@@ -248,6 +291,15 @@ void openDebugLogfile()
     /* Open debug.log with the associated application */
     if (boost::filesystem::exists(pathDebug))
         QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(pathDebug.string())));
+}
+
+void openConfigfile()
+{
+    boost::filesystem::path pathConfig = GetConfigFile();
+
+    /* Open BitSeeds.conf with the associated application */
+    if (boost::filesystem::exists(pathConfig))
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(pathConfig.string())));
 }
 
 ToolTipToRichTextFilter::ToolTipToRichTextFilter(int size_threshold, QObject *parent) :
@@ -341,7 +393,7 @@ bool SetStartOnSystemStartup(bool fAutoStart)
     return true;
 }
 
-#elif defined(Q_OS_LINUX)
+#elif defined(LINUX)
 
 // Follow the Desktop Application Autostart Spec:
 //  http://standards.freedesktop.org/autostart-spec/autostart-spec-latest.html
@@ -359,7 +411,7 @@ boost::filesystem::path static GetAutostartDir()
 
 boost::filesystem::path static GetAutostartFilePath()
 {
-    return GetAutostartDir() / "bitseeds.desktop";
+    return GetAutostartDir() / "BitSeeds.desktop";
 }
 
 bool GetStartOnSystemStartup()
@@ -424,7 +476,7 @@ HelpMessageBox::HelpMessageBox(QWidget *parent) :
     header = tr("BitSeeds-Qt") + " " + tr("version") + " " +
         QString::fromStdString(FormatFullVersion()) + "\n\n" +
         tr("Usage:") + "\n" +
-        "  bitseeds-qt [" + tr("command-line options") + "]                     " + "\n";
+        "  BitSeeds-qt [" + tr("command-line options") + "]                     " + "\n";
 
     coreOptions = QString::fromStdString(HelpMessage());
 
@@ -434,10 +486,15 @@ HelpMessageBox::HelpMessageBox(QWidget *parent) :
         "  -splash                " + tr("Show splash screen on startup (default: 1)") + "\n";
 
     setWindowTitle(tr("BitSeeds-Qt"));
+    setFont(bitcoinAddressFont());
     setTextFormat(Qt::PlainText);
     // setMinimumWidth is ignored for QMessageBox so put in non-breaking spaces to make it wider.
     setText(header + QString(QChar(0x2003)).repeated(50));
     setDetailedText(coreOptions + "\n" + uiOptions);
+    addButton("OK", QMessageBox::RejectRole);   //кнопка OK будет справа от кнопки "Скрыть подробности"
+    //addButton("OK", QMessageBox::NoRole);     //кнопка OK будет слева от кнопки "Скрыть подробности"
+    setMouseTracking(true);
+    setSizeGripEnabled(true);   
 }
 
 void HelpMessageBox::printToConsole()
@@ -458,57 +515,24 @@ void HelpMessageBox::showOrPrint()
 #endif
 }
 
-void SetBlackThemeQSS(QApplication& app)
+QString formatDurationStr(int secs)
 {
-    app.setStyleSheet("QWidget        { background-color: rgb(244,230,172); color: rgb(50,143,79); }"
-                      "QFrame         { border: none; }"
-                      "QComboBox      { background-color: rgb(255,255,255); color: rgb(50,143,79); }"
-                      "QComboBox QAbstractItemView::item { color: rgb(50,143,79); }"
-                      "QPushButton    { background-color: rgb(244,230,172); color: rgb(50,143,79); }"
-                      "QDoubleSpinBox { background-color: rgb(255,255,255); color: rgb(244,230,172); }"
-                      "QLineEdit      { background-color: rgb(80,120,83); color: rgb(244,230,172); }"
-                      "QTextEdit      { background-color: rgb(80,120,83); color: rgb(244,230,172); }"
-                      "QPlainTextEdit { background-color: rgb(80,120,83); color: rgb(244,230,172); }"
-                      "QMenuBar       { background-color: rgb(244,230,172); color: rgb(50,143,79); }"
-                      "QMenu          { background-color: rgb(169,162,79); color: rgb(50,143,79); }"
-                      "QMenuBar::item {background-color: transparent;}"
-                      "QMenu::item:selected { background-color: rgb(208,182,113); }"
-                      "QLabel         { color: rgb(50,143,79); }"
-                      "QLabel#label_5  { font-size:14pt; }"
-                      "QLabel#label_41  { font-size:14pt;}"
-                      "QLabel#label_11  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_15  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_19  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_12  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_16  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_20  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_13  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_17  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_21  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_14  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_10  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_22  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_29  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_18  { font-size:13pt; color:#328f4f; }"
-                      "QLabel#label_30  { font-size:13pt; color:#328f4f; }"
-                      "QScrollBar     { color: rgb(255,255,255); }"
-                      "QCheckBox      { color: rgb(120,127,139); }"
-                      "QRadioButton   { color: rgb(120,127,139); }"
-                      "QTabBar::tab   { color: rgb(50,143,79); border: 1px solid rgb(72,102,65); border-bottom: none; padding: 5px; }"
-                      "QTabBar::tab:selected  { background-color: rgb(244,230,172); }"
-                      "QTabBar::tab:!selected { background-color: rgb(208,182,113); margin-top: 2px; }"
-                      "QTabWidget::pane { border: 1px solid rgb(72,102,65); }"
-                      "QToolButton    { font-size: 12pt; background-color: rgb(208,182,113); color: rgb(61,61,61); border: none; margin-top: 5px; margin-bottom: 5px; }"
-                      "QToolButton:pressed { color: rgb(50,143,79); background : rgb(244,230,172) }"
-                      "QToolButton:hover { color: rgb(50,143,79); background : rgb(244,230,172) }"
-                      "QToolButton:checked { color: rgb(50,143,79); background : rgb(244,230,172) }"
-                      "QProgressBar   { color: rgb(61,61,61); border-color: rgb(255,255,255); border-width: 3px; border-style: solid; }"
-                      "QProgressBar::chunk { background-color: rgb(255,255,255); }"
-                      "QTreeView::item { background-color: rgb(255,255,255); }"
-                      "QTreeView::item:selected { background-color: rgb(244,230,172); }"
-                      "QTableView     { background-color: rgb(72,102,65); color: rgb(255,255,255); gridline-color: rgb(157,160,165); }"
-                      "QHeaderView::section { background-color: rgb(208,182,113); color: rgb(61,61,61); }"
-                      "QToolBar       { background-color: rgb(208,182,113); border: none; }");
+    QStringList strList;
+    int days = secs / 86400;
+    int hours = (secs % 86400) / 3600;
+    int mins = (secs % 3600) / 60;
+    int seconds = secs % 60;
+
+    if (days)
+        strList.append(QString(QObject::tr("%1 d")).arg(days));
+    if (hours)
+        strList.append(QString(QObject::tr("%1 h")).arg(hours));
+    if (mins)
+        strList.append(QString(QObject::tr("%1 m")).arg(mins));
+    if (seconds || (!days && !hours && !mins))
+        strList.append(QString(QObject::tr("%1 s")).arg(seconds));
+
+    return strList.join(" ");
 }
 
 } // namespace GUIUtil

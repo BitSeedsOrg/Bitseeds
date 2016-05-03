@@ -1,0 +1,68 @@
+#!/bin/sh
+
+# PROVIDE: BitSeeds
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+
+#
+# Add the following lines to /etc/rc.conf.local or /etc/rc.conf
+# to enable this service:
+#
+# BitSeeds_enable (bool): Set to NO by default. Set this variable to YES if you want to enable BitSeeds service.
+# BitSeeds_config (path): Set to /usr/local/etc/BitSeeds.conf by default.
+# BitSeeds_user:  The user account BitSeeds daemon runs as. It uses 'root' user by default.
+# BitSeeds_group: The group account BitSeeds daemon runs as. It uses 'wheel' group by default.
+# BitSeeds_datadir (str): Default to "/var/db/BitSeeds". Base data directory.
+
+. /etc/rc.subr
+
+name=BitSeeds
+rcvar=BitSeeds_enable
+
+: ${BitSeeds_enable:=NO}
+: ${BitSeeds_config=/usr/local/etc/BitSeeds.conf}
+: ${BitSeeds_datadir=/var/db/BitSeeds}
+: ${BitSeeds_user="root"}
+: ${BitSeeds_group="wheel"}
+
+required_files=${BitSeeds_config}
+command=/usr/local/bin/BitSeedsd
+BitSeeds_chdir=${BitSeeds_datadir}
+pidfile="${BitSeeds_datadir}/BitSeedsd.pid"
+stop_cmd=BitSeeds_stop
+command_args="-conf=${BitSeeds_config} -datadir=${BitSeeds_datadir} -daemon -pid=${pidfile}"
+start_precmd="${name}_prestart"
+
+BitSeeds_create_datadir()
+{
+	echo "Creating data directory"
+	eval mkdir -p ${BitSeeds_datadir}
+	[ $? -eq 0 ] && chown -R ${BitSeeds_user}:${BitSeeds_group} ${BitSeeds_datadir}
+}
+
+BitSeeds_prestart()
+{
+	if [ ! -d "${BitSeeds_datadir}/." ]; then
+		BitSeeds_create_datadir || return 1
+	fi
+}
+
+BitSeeds_requirepidfile()
+{
+	if [ ! "0`check_pidfile ${pidfile} ${command}`" -gt 1 ]; then
+		echo "${name} not running? (check $pidfile)."
+		exit 1
+	fi
+}
+
+BitSeeds_stop()
+{
+    BitSeeds_requirepidfile
+
+	echo "Stopping ${name}."
+	eval ${command} -conf=${BitSeeds_config} -datadir=${BitSeeds_datadir} stop
+	wait_for_pids ${rc_pid}
+}
+
+load_rc_config $name
+run_rc_command "$1"

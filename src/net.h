@@ -5,11 +5,13 @@
 #ifndef BITCOIN_NET_H
 #define BITCOIN_NET_H
 
+#include <limits>
 #include <deque>
+#ifndef Q_MOC_RUN
 #include <boost/array.hpp>
 #include <boost/foreach.hpp>
+#endif
 #include <openssl/rand.h>
-
 
 #ifndef WIN32
 #include <arpa/inet.h>
@@ -19,42 +21,40 @@
 #include "netbase.h"
 #include "protocol.h"
 #include "addrman.h"
+#include "hash.h"
 
 class CRequestTracker;
 class CNode;
 class CBlockIndex;
 extern int nBestHeight;
 
+const uint16_t nSocksDefault = 9050;
+const uint16_t nPortZero = 0;
 
-/** Time between pings automatically sent out for latency probing and keepalive (in seconds). */
-static const int PING_INTERVAL = 2 * 60;
-/** Time after which to disconnect, after waiting for a ping response (or inactivity). */
-static const int TIMEOUT_INTERVAL = 20 * 60;
 
-inline unsigned int ReceiveFloodSize() { return 1000*GetArg("-maxreceivebuffer", 5*1000); }
-inline unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 1*1000); }
+inline uint64_t ReceiveBufferSize() { return 1000*GetArg("-maxreceivebuffer", 5*1000); }
+inline uint64_t SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 1*1000); }
 
 void AddOneShot(std::string strDest);
 bool RecvLine(SOCKET hSocket, std::string& strLine);
 bool GetMyExternalIP(CNetAddr& ipRet);
 void AddressCurrentlyConnected(const CService& addr);
 CNode* FindNode(const CNetAddr& ip);
-CNode* FindNode(const std::string& addrName);
 CNode* FindNode(const CService& ip);
-CNode* ConnectNode(CAddress addrConnect, const char *strDest = NULL);
+CNode* ConnectNode(CAddress addrConnect, const char *strDest = NULL, int64_t nTimeout=0);
+bool OpenNetworkConnection(const CAddress& addrConnect, CSemaphoreGrant *grantOutbound = NULL, const char *strDest = NULL, bool fOneShot = false);
 void MapPort();
 unsigned short GetListenPort();
 bool BindListenPort(const CService &bindAddr, std::string& strError=REF(std::string()));
 void StartNode(void* parg);
 bool StopNode();
-void SocketSendData(CNode *pnode);
 
 enum
 {
     LOCAL_NONE,   // unknown
     LOCAL_IF,     // address a local interface listens on
     LOCAL_BIND,   // address explicit bound to
-    LOCAL_UPNP,   // address reported by UPnP
+    LOCAL_IRC,    // address reported by IRC (deprecated)
     LOCAL_HTTP,   // address reported by whatismyip.com and similar
     LOCAL_MANUAL, // address explicitly specified (-externalip=)
 
@@ -106,18 +106,19 @@ enum threadId
     THREAD_OPENCONNECTIONS,
     THREAD_MESSAGEHANDLER,
     THREAD_RPCLISTENER,
-    THREAD_UPNP,
     THREAD_DNSSEED,
     THREAD_ADDEDCONNECTIONS,
     THREAD_DUMPADDRESS,
     THREAD_RPCHANDLER,
-    THREAD_STAKE_MINER,
+    THREAD_MINTER,
+    THREAD_SCRIPTCHECK,
+    THREAD_NTP,
 
     THREAD_MAX
 };
 
+extern bool fClient;
 extern bool fDiscover;
-extern bool fUseUPnP;
 extern uint64_t nLocalServices;
 extern uint64_t nLocalHostNonce;
 extern CAddress addrSeenByPeer;
@@ -126,6 +127,8 @@ extern CAddrMan addrman;
 
 extern std::vector<CNode*> vNodes;
 extern CCriticalSection cs_vNodes;
+extern std::vector<std::string> vAddedNodes;
+extern CCriticalSection cs_vAddedNodes;
 extern std::map<CInv, CDataStream> mapRelay;
 extern std::deque<std::pair<int64_t, CInv> > vRelayExpiration;
 extern CCriticalSection cs_mapRelay;
@@ -142,54 +145,15 @@ public:
     int64_t nLastRecv;
     int64_t nTimeConnected;
     std::string addrName;
-    int nVersion;
+    int32_t nVersion;
     std::string strSubVer;
     bool fInbound;
-    int nStartingHeight;
-    int nMisbehavior;
-    double dPingTime;
-    double dPingWait;
-};
-
-
-
-
-class CNetMessage {
-public:
-    bool in_data;                   // parsing header (false) or data (true)
-
-    CDataStream hdrbuf;             // partially received header
-    CMessageHeader hdr;             // complete header
-    unsigned int nHdrPos;
-
-    CDataStream vRecv;              // received message data
-    unsigned int nDataPos;
-
-    int64_t nTime;                  // time (in microseconds) of message receipt.
-
-    CNetMessage(int nTypeIn, int nVersionIn) : hdrbuf(nTypeIn, nVersionIn), vRecv(nTypeIn, nVersionIn) {
-        hdrbuf.resize(24);
-        in_data = false;
-        nHdrPos = 0;
-        nDataPos = 0;
-        nTime = 0;
-    }
-
-    bool complete() const
-    {
-        if (!in_data)
-            return false;
-        return (hdr.nMessageSize == nDataPos);
-    }
-
-    void SetVersion(int nVersionIn)
-    {
-        hdrbuf.SetVersion(nVersionIn);
-        vRecv.SetVersion(nVersionIn);
-    }
-
-    int readHeader(const char *pch, unsigned int nBytes);
-    int readData(const char *pch, unsigned int nBytes);
+    int64_t nReleaseTime;
+    int32_t nStartingHeight;
+    int32_t nMisbehavior;
+    uint64_t nSendBytes;
+    uint64_t nRecvBytes;
+    bool fSyncNode;
 };
 
 
@@ -203,23 +167,22 @@ public:
     // socket
     uint64_t nServices;
     SOCKET hSocket;
-    CDataStream ssSend;
-    size_t nSendSize; // total size of all vSendMsg entries
-    size_t nSendOffset; // offset inside the first vSendMsg already sent
-    std::deque<CSerializeData> vSendMsg;
+    CDataStream vSend;
+    CDataStream vRecv;
+    uint64_t nSendBytes;
+    uint64_t nRecvBytes;
     CCriticalSection cs_vSend;
-
-    std::deque<CNetMessage> vRecvMsg;
-    CCriticalSection cs_vRecvMsg;
-    int nRecvVersion;
-
+    CCriticalSection cs_vRecv;
     int64_t nLastSend;
     int64_t nLastRecv;
+    int64_t nLastSendEmpty;
     int64_t nTimeConnected;
+    int32_t nHeaderStart;
+    uint32_t nMessageStart;
     CAddress addr;
     std::string addrName;
     CService addrLocal;
-    int nVersion;
+    int32_t nVersion;
     std::string strSubVer;
     bool fOneShot;
     bool fClient;
@@ -228,8 +191,8 @@ public:
     bool fSuccessfullyConnected;
     bool fDisconnect;
     CSemaphoreGrant grantOutbound;
-    int nRefCount;
 protected:
+    int nRefCount;
 
     // Denial-of-service detection/prevention
     // Key is IP address, value is banned-until-time
@@ -238,16 +201,18 @@ protected:
     int nMisbehavior;
 
 public:
+    int64_t nReleaseTime;
     std::map<uint256, CRequestTracker> mapRequests;
     CCriticalSection cs_mapRequests;
     uint256 hashContinue;
     CBlockIndex* pindexLastGetBlocksBegin;
     uint256 hashLastGetBlocksEnd;
-    int nStartingHeight;
+    int32_t nStartingHeight;
+    bool fStartSync;
 
     // flood relay
     std::vector<CAddress> vAddrToSend;
-    mruset<CAddress> setAddrKnown;
+    std::set<CAddress> setAddrKnown;
     bool fGetAddr;
     std::set<uint256> setKnown;
     uint256 hashCheckpointKnown; // ppcoin: known sent sync-checkpoint
@@ -258,24 +223,18 @@ public:
     CCriticalSection cs_inventory;
     std::multimap<int64_t, CInv> mapAskFor;
 
-    // Ping time measurement:
-    // The pong reply we're expecting, or 0 if no pong expected.
-    uint64_t nPingNonceSent;
-    // Time (in usec) the last ping was sent, or 0 if no ping was ever sent.
-    int64_t nPingUsecStart;
-    // Last measured round-trip time.
-    int64_t nPingUsecTime;
-    // Whether a ping is requested.
-    bool fPingQueued;
-
-    CNode(SOCKET hSocketIn, CAddress addrIn, std::string addrNameIn = "", bool fInboundIn=false) : ssSend(SER_NETWORK, INIT_PROTO_VERSION), setAddrKnown(5000)
+    CNode(SOCKET hSocketIn, CAddress addrIn, std::string addrNameIn = "", bool fInboundIn=false) : vSend(SER_NETWORK, MIN_PROTO_VERSION), vRecv(SER_NETWORK, MIN_PROTO_VERSION)
     {
         nServices = 0;
         hSocket = hSocketIn;
-        nRecvVersion = INIT_PROTO_VERSION;
         nLastSend = 0;
         nLastRecv = 0;
+        nSendBytes = 0;
+        nRecvBytes = 0;
+        nLastSendEmpty = GetTime();
         nTimeConnected = GetTime();
+        nHeaderStart = -1;
+        nMessageStart = std::numeric_limits<uint32_t>::max();
         addr = addrIn;
         addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
         nVersion = 0;
@@ -287,20 +246,16 @@ public:
         fSuccessfullyConnected = false;
         fDisconnect = false;
         nRefCount = 0;
-        nSendSize = 0;
-        nSendOffset = 0;
+        nReleaseTime = 0;
         hashContinue = 0;
         pindexLastGetBlocksBegin = 0;
         hashLastGetBlocksEnd = 0;
         nStartingHeight = -1;
+        fStartSync = false;
         fGetAddr = false;
         nMisbehavior = 0;
         hashCheckpointKnown = 0;
-        setInventoryKnown.max_size(SendBufferSize() / 1000);
-        nPingNonceSent = 0;
-        nPingUsecStart = 0;
-        nPingUsecTime = 0;
-        fPingQueued = false;
+        setInventoryKnown.max_size((size_t)SendBufferSize() / 1000);
 
         // Be shy and don't send version until we hear
         if (hSocket != INVALID_SOCKET && !fInbound)
@@ -316,48 +271,29 @@ public:
         }
     }
 
+
 private:
     // Network usage totals
     static CCriticalSection cs_totalBytesRecv;
     static CCriticalSection cs_totalBytesSent;
     static uint64_t nTotalBytesRecv;
     static uint64_t nTotalBytesSent;
-
     CNode(const CNode&);
     void operator=(const CNode&);
-
 public:
 
 
     int GetRefCount()
     {
-        assert(nRefCount >= 0);
-        return nRefCount;
+        return std::max(nRefCount, 0) + (GetTime() < nReleaseTime ? 1 : 0);
     }
 
-    // requires LOCK(cs_vRecvMsg)
-    unsigned int GetTotalRecvSize()
+    CNode* AddRef(int64_t nTimeout=0)
     {
-        unsigned int total = 0;
-        BOOST_FOREACH(const CNetMessage &msg, vRecvMsg) 
-            total += msg.vRecv.size() + 24;
-        return total;
-    }
-
-    // requires LOCK(cs_vRecvMsg)
-    bool ReceiveMsgBytes(const char *pch, unsigned int nBytes);
-
-    // requires LOCK(cs_vRecvMsg)
-    void SetRecvVersion(int nVersionIn)
-    {
-        nRecvVersion = nVersionIn;
-        BOOST_FOREACH(CNetMessage &msg, vRecvMsg)
-            msg.SetVersion(nVersionIn);
-    }
-
-    CNode* AddRef()
-    {
-        nRefCount++;
+        if (nTimeout != 0)
+            nReleaseTime = std::max(nReleaseTime, GetTime() + nTimeout);
+        else
+            nRefCount++;
         return this;
     }
 
@@ -406,7 +342,7 @@ public:
         // the key is the earliest time the request can be sent
         int64_t& nRequestTime = mapAlreadyAskedFor[inv];
         if (fDebugNet)
-            printf("askfor %s   %"PRId64" (%s)\n", inv.ToString().c_str(), nRequestTime, DateTimeStrFormat("%H:%M:%S", nRequestTime/1000000).c_str());
+            printf("askfor %s   %" PRId64 " (%s)\n", inv.ToString().c_str(), nRequestTime, DateTimeStrFormat("%H:%M:%S", nRequestTime/1000000).c_str());
 
         // Make sure not to reuse time indexes to keep things in the same order
         int64_t nNow = (GetTime() - 1) * 1000000;
@@ -425,16 +361,22 @@ public:
     void BeginMessage(const char* pszCommand)
     {
         ENTER_CRITICAL_SECTION(cs_vSend);
-        assert(ssSend.size() == 0);
-        ssSend << CMessageHeader(pszCommand, 0);
+        if (nHeaderStart != -1)
+            AbortMessage();
+        nHeaderStart = (int32_t)vSend.size();
+        vSend << CMessageHeader(pszCommand, 0);
+        nMessageStart = (uint32_t)vSend.size();
         if (fDebug)
             printf("sending: %s ", pszCommand);
     }
 
     void AbortMessage()
     {
-        ssSend.clear();
-
+        if (nHeaderStart < 0)
+            return;
+        vSend.resize(nHeaderStart);
+        nHeaderStart = -1;
+        nMessageStart = std::numeric_limits<uint32_t>::max();
         LEAVE_CRITICAL_SECTION(cs_vSend);
 
         if (fDebug)
@@ -450,34 +392,41 @@ public:
             return;
         }
 
-        if (ssSend.size() == 0)
+        if (nHeaderStart < 0)
             return;
 
         // Set the size
-        unsigned int nSize = ssSend.size() - CMessageHeader::HEADER_SIZE;
-        memcpy((char*)&ssSend[CMessageHeader::MESSAGE_SIZE_OFFSET], &nSize, sizeof(nSize));
+        uint32_t nSize = (uint32_t) vSend.size() - nMessageStart;
+        memcpy((char*)&vSend[nHeaderStart] + CMessageHeader::MESSAGE_SIZE_OFFSET, &nSize, sizeof(nSize));
 
         // Set the checksum
-        uint256 hash = Hash(ssSend.begin() + CMessageHeader::HEADER_SIZE, ssSend.end());
-        unsigned int nChecksum = 0;
+        uint256 hash = Hash(vSend.begin() + nMessageStart, vSend.end());
+        uint32_t nChecksum = 0;
         memcpy(&nChecksum, &hash, sizeof(nChecksum));
-        assert(ssSend.size () >= CMessageHeader::CHECKSUM_OFFSET + sizeof(nChecksum));
-        memcpy((char*)&ssSend[CMessageHeader::CHECKSUM_OFFSET], &nChecksum, sizeof(nChecksum));
+        assert(nMessageStart - nHeaderStart >= CMessageHeader::CHECKSUM_OFFSET + sizeof(nChecksum));
+        memcpy((char*)&vSend[nHeaderStart] + CMessageHeader::CHECKSUM_OFFSET, &nChecksum, sizeof(nChecksum));
 
         if (fDebug) {
             printf("(%d bytes)\n", nSize);
         }
 
-        std::deque<CSerializeData>::iterator it = vSendMsg.insert(vSendMsg.end(), CSerializeData());
-        ssSend.GetAndClear(*it);
-        nSendSize += (*it).size();
-
-        // If write queue empty, attempt "optimistic write"
-        if (it == vSendMsg.begin())
-            SocketSendData(this);
-
+        nHeaderStart = -1;
+        nMessageStart = std::numeric_limits<uint32_t>::max();
         LEAVE_CRITICAL_SECTION(cs_vSend);
     }
+
+    void EndMessageAbortIfEmpty()
+    {
+        if (nHeaderStart < 0)
+            return;
+        int nSize = (int) vSend.size() - nMessageStart;
+        if (nSize > 0)
+            EndMessage();
+        else
+            AbortMessage();
+    }
+
+
 
     void PushVersion();
 
@@ -502,7 +451,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1;
+            vSend << a1;
             EndMessage();
         }
         catch (...)
@@ -518,7 +467,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2;
+            vSend << a1 << a2;
             EndMessage();
         }
         catch (...)
@@ -534,7 +483,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3;
+            vSend << a1 << a2 << a3;
             EndMessage();
         }
         catch (...)
@@ -550,7 +499,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4;
+            vSend << a1 << a2 << a3 << a4;
             EndMessage();
         }
         catch (...)
@@ -566,7 +515,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4 << a5;
+            vSend << a1 << a2 << a3 << a4 << a5;
             EndMessage();
         }
         catch (...)
@@ -582,7 +531,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4 << a5 << a6;
+            vSend << a1 << a2 << a3 << a4 << a5 << a6;
             EndMessage();
         }
         catch (...)
@@ -598,7 +547,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4 << a5 << a6 << a7;
+            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7;
             EndMessage();
         }
         catch (...)
@@ -614,7 +563,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8;
+            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8;
             EndMessage();
         }
         catch (...)
@@ -630,7 +579,7 @@ public:
         try
         {
             BeginMessage(pszCommand);
-            ssSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8 << a9;
+            vSend << a1 << a2 << a3 << a4 << a5 << a6 << a7 << a8 << a9;
             EndMessage();
         }
         catch (...)
@@ -692,6 +641,8 @@ public:
     void Subscribe(unsigned int nChannel, unsigned int nHops=0);
     void CancelSubscribe(unsigned int nChannel);
     void CloseSocketDisconnect();
+    void Cleanup();
+
 
     // Denial-of-service detection/prevention
     // The idea is to detect peers that are behaving
@@ -711,7 +662,6 @@ public:
     static bool IsBanned(CNetAddr ip);
     bool Misbehaving(int howmuch); // 1 == a little, 100 == a lot
     void copyStats(CNodeStats &stats);
-
     // Network stats
     static void RecordBytesRecv(uint64_t bytes);
     static void RecordBytesSent(uint64_t bytes);

@@ -1,0 +1,2 @@
+debian/bin/BitSeedsd usr/bin
+src/BitSeedsd usr/lib/BitSeeds

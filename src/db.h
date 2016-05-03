@@ -28,11 +28,13 @@ extern unsigned int nWalletDBUpdated;
 
 void ThreadFlushWalletDB(void* parg);
 bool BackupWallet(const CWallet& wallet, const std::string& strDest);
-
+bool DumpWallet(CWallet* pwallet, const std::string& strDest);
+bool ImportWallet(CWallet* pwallet, const std::string& strLocation);
 
 class CDBEnv
 {
 private:
+    bool fDetachDB;
     bool fDbEnvInit;
     bool fMockDb;
     boost::filesystem::path pathEnv;
@@ -73,6 +75,8 @@ public:
     void Close();
     void Flush(bool fShutdown);
     void CheckpointLSN(std::string strFile);
+    void SetDetach(bool fDetachDB_) { fDetachDB = fDetachDB_; }
+    bool GetDetach() { return fDetachDB; }
 
     void CloseDb(const std::string& strFile);
     bool RemoveDb(const std::string& strFile);
@@ -118,7 +122,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Read
         Dbt datValue;
@@ -134,6 +138,7 @@ protected:
             ssValue >> value;
         }
         catch (std::exception &e) {
+            (void)e;
             return false;
         }
 
@@ -155,13 +160,13 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Value
         CDataStream ssValue(SER_DISK, CLIENT_VERSION);
         ssValue.reserve(10000);
         ssValue << value;
-        Dbt datValue(&ssValue[0], ssValue.size());
+        Dbt datValue(&ssValue[0], (uint32_t)ssValue.size());
 
         // Write
         int ret = pdb->put(activeTxn, &datKey, &datValue, (fOverwrite ? 0 : DB_NOOVERWRITE));
@@ -184,7 +189,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Erase
         int ret = pdb->del(activeTxn, &datKey, 0);
@@ -204,7 +209,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Exists
         int ret = pdb->exists(activeTxn, &datKey, 0);
@@ -232,13 +237,13 @@ protected:
         if (fFlags == DB_SET || fFlags == DB_SET_RANGE || fFlags == DB_GET_BOTH || fFlags == DB_GET_BOTH_RANGE)
         {
             datKey.set_data(&ssKey[0]);
-            datKey.set_size(ssKey.size());
+            datKey.set_size((uint32_t)ssKey.size());
         }
         Dbt datValue;
         if (fFlags == DB_GET_BOTH || fFlags == DB_GET_BOTH_RANGE)
         {
             datValue.set_data(&ssValue[0]);
-            datValue.set_size(ssValue.size());
+            datValue.set_size((uint32_t)ssValue.size());
         }
         datKey.set_flags(DB_DBT_MALLOC);
         datValue.set_flags(DB_DBT_MALLOC);

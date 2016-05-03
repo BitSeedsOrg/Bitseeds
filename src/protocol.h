@@ -13,12 +13,13 @@
 #include "serialize.h"
 #include "netbase.h"
 #include <string>
+#include <limits>
 #include "uint256.h"
 
 extern bool fTestNet;
 static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
 {
-    return testnet ? 12332 : 2332;
+    return testnet ? 17778 : 28374;
 }
 
 
@@ -56,8 +57,7 @@ class CMessageHeader
             CHECKSUM_SIZE=sizeof(int),
 
             MESSAGE_SIZE_OFFSET=MESSAGE_START_SIZE+COMMAND_SIZE,
-            CHECKSUM_OFFSET=MESSAGE_SIZE_OFFSET+MESSAGE_SIZE_SIZE,
-            HEADER_SIZE=MESSAGE_START_SIZE+COMMAND_SIZE+MESSAGE_SIZE_SIZE+CHECKSUM_SIZE
+            CHECKSUM_OFFSET=MESSAGE_SIZE_OFFSET+MESSAGE_SIZE_SIZE
         };
         char pchMessageStart[MESSAGE_START_SIZE];
         char pchCommand[COMMAND_SIZE];

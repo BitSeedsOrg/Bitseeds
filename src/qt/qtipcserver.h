@@ -1,7 +1,7 @@
 #ifndef QTIPCSERVER_H
 #define QTIPCSERVER_H
 
-// Define BitSeeds-Qt message queue name
+// Define Bitcoin-Qt message queue name
 #define BITCOINURI_QUEUE_NAME "BitSeedsURI"
 
 void ipcScanRelay(int argc, char *argv[]);

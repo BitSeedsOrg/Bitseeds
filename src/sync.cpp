@@ -3,7 +3,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "sync.h"
-
 #include "util.h"
 
 #include <boost/foreach.hpp>
@@ -41,8 +40,6 @@ struct CLockLocation
     {
         return mutexName+"  "+sourceFile+":"+itostr(sourceLine);
     }
-
-    std::string MutexName() const { return mutexName; }
 
 private:
     std::string mutexName;
@@ -126,23 +123,6 @@ void EnterCritical(const char* pszName, const char* pszFile, int nLine, void* cs
 void LeaveCritical()
 {
     pop_lock();
-}
-
-std::string LocksHeld()
-{
-    std::string result;
-    BOOST_FOREACH(const PAIRTYPE(void*, CLockLocation)&i, *lockstack)
-        result += i.second.ToString() + std::string("\n");
-    return result;
-}
-
-void AssertLockHeldInternal(const char *pszName, const char* pszFile, int nLine, void *cs)
-{
-    BOOST_FOREACH(const PAIRTYPE(void*, CLockLocation)&i, *lockstack)
-        if (i.first == cs) return;
-    fprintf(stderr, "Assertion failed: lock %s not held in %s:%i; locks held:\n%s",
-            pszName, pszFile, nLine, LocksHeld().c_str());
-    abort();
 }
 
 #endif /* DEBUG_LOCKORDER */

@@ -25,11 +25,12 @@ namespace boost {
 #include <boost/program_options/parsers.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/foreach.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
-#include <stdarg.h>
 
 #ifdef WIN32
 #ifdef _MSC_VER
@@ -56,7 +57,13 @@ namespace boost {
 # include <sys/prctl.h>
 #endif
 
+#if !defined(WIN32) && !defined(ANDROID)
+#include <execinfo.h>
+#endif
+
+
 using namespace std;
+namespace bt = boost::posix_time;
 
 map<string, string> mapArgs;
 map<string, vector<string> > mapMultiArgs;
@@ -75,6 +82,25 @@ bool fNoListen = false;
 bool fLogTimestamps = false;
 CMedianFilter<int64_t> vTimeOffsets(200,0);
 bool fReopenDebugLog = false;
+
+// Extended DecodeDumpTime implementation, see this page for details:
+// http://stackoverflow.com/questions/3786201/parsing-of-date-time-from-string-boost
+const std::locale formats[] = {
+    std::locale(std::locale::classic(),new bt::time_input_facet("%Y-%m-%dT%H:%M:%SZ")),
+    std::locale(std::locale::classic(),new bt::time_input_facet("%Y-%m-%d %H:%M:%S")),
+    std::locale(std::locale::classic(),new bt::time_input_facet("%Y/%m/%d %H:%M:%S")),
+    std::locale(std::locale::classic(),new bt::time_input_facet("%d.%m.%Y %H:%M:%S")),
+    std::locale(std::locale::classic(),new bt::time_input_facet("%Y-%m-%d"))
+};
+
+const size_t formats_n = sizeof(formats)/sizeof(formats[0]);
+
+std::time_t pt_to_time_t(const bt::ptime& pt)
+{
+    bt::ptime timet_start(boost::gregorian::date(1970,1,1));
+    bt::time_duration diff = pt - timet_start;
+    return diff.ticks()/bt::time_duration::rep_type::ticks_per_second;
+}
 
 // Init OpenSSL library multithreading support
 static CCriticalSection** ppmutexOpenSSL;
@@ -102,17 +128,15 @@ public:
         CRYPTO_set_locking_callback(locking_callback);
 
 #ifdef WIN32
-        // Seed OpenSSL PRNG with current contents of the screen
+        // Seed random number generator with screen scrape and other hardware sources
         RAND_screen();
 #endif
 
-        // Seed OpenSSL PRNG with performance counter
+        // Seed random number generator with performance counter
         RandAddSeed();
     }
     ~CInit()
     {
-        // Securely erase the memory used by the PRNG
-        RAND_cleanup();
         // Shutdown OpenSSL library multithreading support
         CRYPTO_set_locking_callback(NULL);
         for (int i = 0; i < CRYPTO_num_locks(); i++)
@@ -158,7 +182,7 @@ void RandAddSeedPerfmon()
     if (ret == ERROR_SUCCESS)
     {
         RAND_add(pdata, nSize, nSize/100.0);
-        memset(pdata, 0, nSize);
+        OPENSSL_cleanse(pdata, nSize);
         printf("RandAddSeed() %lu bytes\n", nSize);
     }
 #endif
@@ -181,7 +205,7 @@ uint64_t GetRand(uint64_t nMax)
 
 int GetRandInt(int nMax)
 {
-    return GetRand(nMax);
+    return static_cast<int>(GetRand(nMax));
 }
 
 uint256 GetRandHash()
@@ -196,6 +220,7 @@ uint256 GetRandHash()
 
 
 
+static FILE* fileout = NULL;
 
 inline int OutputDebugStringF(const char* pszFormat, ...)
 {
@@ -211,7 +236,6 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
     else if (!fPrintToDebugger)
     {
         // print to debug.log
-        static FILE* fileout = NULL;
 
         if (!fileout)
         {
@@ -269,7 +293,7 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
             buffer += vstrprintf(pszFormat, arg_ptr);
             va_end(arg_ptr);
 
-            int line_start = 0, line_end;
+            size_t line_start = 0, line_end;
             while((line_end = buffer.find('\n', line_start)) != -1)
             {
                 OutputDebugStringA(buffer.substr(line_start, line_end - line_start).c_str());
@@ -290,8 +314,12 @@ string vstrprintf(const char *format, va_list ap)
     int ret;
     while (true)
     {
+#ifndef _MSC_VER
         va_list arg_ptr;
         va_copy(arg_ptr, ap);
+#else
+        va_list arg_ptr = ap;
+#endif
 #ifdef WIN32
         ret = _vsnprintf(p, limit, format, arg_ptr);
 #else
@@ -369,11 +397,11 @@ string FormatMoney(int64_t n, bool fPlus)
     int64_t n_abs = (n > 0 ? n : -n);
     int64_t quotient = n_abs/COIN;
     int64_t remainder = n_abs%COIN;
-    string str = strprintf("%"PRId64".%08"PRId64, quotient, remainder);
+    string str = strprintf("%" PRId64 ".%06" PRId64, quotient, remainder);
 
     // Right-trim excess zeros before the decimal point:
     int nTrim = 0;
-    for (int i = str.size()-1; (str[i] == '0' && isdigit(str[i-2])); --i)
+    for (size_t i = str.size()-1; (str[i] == '0' && isdigit(str[i-2])); --i)
         ++nTrim;
     if (nTrim)
         str.erase(str.size()-nTrim, nTrim);
@@ -560,6 +588,20 @@ int64_t GetArg(const std::string& strArg, int64_t nDefault)
     return nDefault;
 }
 
+int32_t GetArgInt(const std::string& strArg, int32_t nDefault)
+{
+    if (mapArgs.count(strArg))
+        return strtol(mapArgs[strArg]);
+    return nDefault;
+}
+
+uint32_t GetArgUInt(const std::string& strArg, uint32_t nDefault)
+{
+    if (mapArgs.count(strArg))
+        return strtoul(mapArgs[strArg]);
+    return nDefault;
+}
+
 bool GetBoolArg(const std::string& strArg, bool fDefault)
 {
     if (mapArgs.count(strArg))
@@ -573,9 +615,11 @@ bool GetBoolArg(const std::string& strArg, bool fDefault)
 
 bool SoftSetArg(const std::string& strArg, const std::string& strValue)
 {
-    if (mapArgs.count(strArg))
+    if (mapArgs.count(strArg) || mapMultiArgs.count(strArg))
         return false;
     mapArgs[strArg] = strValue;
+    mapMultiArgs[strArg].push_back(strValue);
+
     return true;
 }
 
@@ -916,6 +960,51 @@ string DecodeBase32(const string& str)
 }
 
 
+int64_t DecodeDumpTime(const std::string& s)
+{
+    bt::ptime pt;
+
+    for(size_t i=0; i<formats_n; ++i)
+    {
+        std::istringstream is(s);
+        is.imbue(formats[i]);
+        is >> pt;
+        if(pt != bt::ptime()) break;
+    }
+
+    return pt_to_time_t(pt);
+}
+
+std::string EncodeDumpTime(int64_t nTime) {
+    return DateTimeStrFormat("%Y-%m-%dT%H:%M:%SZ", nTime);
+}
+
+std::string EncodeDumpString(const std::string &str) {
+    std::stringstream ret;
+    BOOST_FOREACH(unsigned char c, str) {
+        if (c <= 32 || c >= 128 || c == '%') {
+            ret << '%' << HexStr(&c, &c + 1);
+        } else {
+            ret << c;
+        }
+    }
+    return ret.str();
+}
+
+std::string DecodeDumpString(const std::string &str) {
+    std::stringstream ret;
+    for (unsigned int pos = 0; pos < str.length(); pos++) {
+        unsigned char c = str[pos];
+        if (c == '%' && pos+2 < str.length()) {
+            c = (((str[pos+1]>>6)*9+((str[pos+1]-'0')&15)) << 4) | 
+                ((str[pos+2]>>6)*9+((str[pos+2]-'0')&15));
+            pos += 2;
+        }
+        ret << c;
+    }
+    return ret.str();
+}
+
 bool WildcardMatch(const char* psz, const char* mask)
 {
     while (true)
@@ -958,7 +1047,7 @@ static std::string FormatException(std::exception* pex, const char* pszThread)
     char pszModule[MAX_PATH] = "";
     GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
 #else
-    const char* pszModule = "bitseeds";
+    const char* pszModule = "BitSeeds";
 #endif
     if (pex)
         return strprintf(
@@ -968,6 +1057,12 @@ static std::string FormatException(std::exception* pex, const char* pszThread)
             "UNKNOWN EXCEPTION       \n%s in %s       \n", pszModule, pszThread);
 }
 
+void LogException(std::exception* pex, const char* pszThread)
+{
+    std::string message = FormatException(pex, pszThread);
+    printf("\n%s", message.c_str());
+}
+
 void PrintException(std::exception* pex, const char* pszThread)
 {
     std::string message = FormatException(pex, pszThread);
@@ -975,6 +1070,19 @@ void PrintException(std::exception* pex, const char* pszThread)
     fprintf(stderr, "\n\n************************\n%s\n", message.c_str());
     strMiscWarning = message;
     throw;
+}
+
+void LogStackTrace() {
+    printf("\n\n******* exception encountered *******\n");
+    if (fileout)
+    {
+#if !defined(WIN32) && !defined(ANDROID)
+        void* pszBuffer[32];
+        size_t size;
+        size = backtrace(pszBuffer, 32);
+        backtrace_symbols_fd(pszBuffer, size, fileno(fileout));
+#endif
+    }
 }
 
 void PrintExceptionContinue(std::exception* pex, const char* pszThread)
@@ -988,13 +1096,13 @@ void PrintExceptionContinue(std::exception* pex, const char* pszThread)
 boost::filesystem::path GetDefaultDataDir()
 {
     namespace fs = boost::filesystem;
-    // Windows < Vista: C:\Documents and Settings\Username\Application Data\BitSeeds
-    // Windows >= Vista: C:\Users\Username\AppData\Roaming\BitSeeds
-    // Mac: ~/Library/Application Support/BitSeeds
-    // Unix: ~/.bitseeds
+    // Windows < Vista: C:\Documents and Settings\Username\Application Data\BitSeeds-New
+    // Windows >= Vista: C:\Users\Username\AppData\Roaming\BitSeeds-New
+    // Mac: ~/Library/Application Support/BitSeeds-New
+    // Unix: ~/.BitSeeds-New
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "BitSeeds";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "BitSeeds-New";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -1006,10 +1114,10 @@ boost::filesystem::path GetDefaultDataDir()
     // Mac
     pathRet /= "Library/Application Support";
     fs::create_directory(pathRet);
-    return pathRet / "BitSeeds";
+    return pathRet / "BitSeeds-New";
 #else
     // Unix
-    return pathRet / ".bitseeds";
+    return pathRet / ".BitSeeds-New";
 #endif
 #endif
 }
@@ -1041,7 +1149,7 @@ const boost::filesystem::path &GetDataDir(bool fNetSpecific)
         path = GetDefaultDataDir();
     }
     if (fNetSpecific && GetBoolArg("-testnet", false))
-        path /= "testnet";
+        path /= "testnet2";
 
     fs::create_directory(path);
 
@@ -1049,9 +1157,42 @@ const boost::filesystem::path &GetDataDir(bool fNetSpecific)
     return path;
 }
 
+string randomStrGen(int length) {
+    static string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    string result;
+    result.resize(length);
+    for (int32_t i = 0; i < length; i++)
+        result[i] = charset[rand() % charset.length()];
+
+    return result;
+}
+
+void createConf()
+{
+    srand(static_cast<unsigned int>(time(NULL)));
+
+    ofstream pConf;
+#if BOOST_FILESYSTEM_VERSION >= 3
+    pConf.open(GetConfigFile().generic_string().c_str());
+#else
+    pConf.open(GetConfigFile().string().c_str());
+#endif
+    pConf << "rpcuser=user\nrpcpassword="
+            + randomStrGen(15)
+            + "\nrpcport=28373"
+            + "\nport=28374"
+            + "\n#(0=off, 1=on) daemon - run in the background as a daemon and accept commands"
+            + "\ndaemon=0"
+            + "\n#(0=off, 1=on) server - accept command line and JSON-RPC commands"
+            + "\nserver=0"
+            + "\nrpcallowip=127.0.0.1"
+            + "\ntestnet=0";
+    pConf.close();
+}
+
 boost::filesystem::path GetConfigFile()
 {
-    boost::filesystem::path pathConfigFile(GetArg("-conf", "bitseeds.conf"));
+    boost::filesystem::path pathConfigFile(GetArg("-conf", "BitSeeds.conf"));
     if (!pathConfigFile.is_complete()) pathConfigFile = GetDataDir(false) / pathConfigFile;
     return pathConfigFile;
 }
@@ -1061,7 +1202,12 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
 {
     boost::filesystem::ifstream streamConfig(GetConfigFile());
     if (!streamConfig.good())
-        return; // No bitcoin.conf file is OK
+    {
+        createConf();
+        new(&streamConfig) boost::filesystem::ifstream(GetConfigFile());
+        if(!streamConfig.good())
+            return;
+    }
 
     set<string> setOptions;
     setOptions.insert("*");
@@ -1082,7 +1228,7 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
 
 boost::filesystem::path GetPidFile()
 {
-    boost::filesystem::path pathPidFile(GetArg("-pid", "bitseedsd.pid"));
+    boost::filesystem::path pathPidFile(GetArg("-pid", "BitSeedsd.pid"));
     if (!pathPidFile.is_complete()) pathPidFile = GetDataDir() / pathPidFile;
     return pathPidFile;
 }
@@ -1103,7 +1249,7 @@ bool RenameOver(boost::filesystem::path src, boost::filesystem::path dest)
 {
 #ifdef WIN32
     return MoveFileExA(src.string().c_str(), dest.string().c_str(),
-                      MOVEFILE_REPLACE_EXISTING);
+                       MOVEFILE_REPLACE_EXISTING) != 0;
 #else
     int rc = std::rename(src.string().c_str(), dest.string().c_str());
     return (rc == 0);
@@ -1120,17 +1266,27 @@ void FileCommit(FILE *fileout)
 #endif
 }
 
+int GetFilesize(FILE* file)
+{
+    int nSavePos = ftell(file);
+    int nFilesize = -1;
+    if (fseek(file, 0, SEEK_END) == 0)
+        nFilesize = ftell(file);
+    fseek(file, nSavePos, SEEK_SET);
+    return nFilesize;
+}
+
 void ShrinkDebugFile()
 {
     // Scroll debug.log if it's getting too big
     boost::filesystem::path pathLog = GetDataDir() / "debug.log";
     FILE* file = fopen(pathLog.string().c_str(), "r");
-    if (file && boost::filesystem::file_size(pathLog) > 10 * 1000000)
+    if (file && GetFilesize(file) > 10 * 1000000)
     {
         // Restart the file with some of the end
         char pch[200000];
-        fseek(file, -sizeof(pch), SEEK_END);
-        int nBytes = fread(pch, 1, sizeof(pch), file);
+        fseek(file, -((long long)sizeof(pch)), SEEK_END);
+        size_t nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
 
         file = fopen(pathLog.string().c_str(), "w");
@@ -1142,6 +1298,13 @@ void ShrinkDebugFile()
     }
 }
 
+
+
+
+
+
+
+
 //
 // "Never go to sea with two chronometers; take one or three."
 // Our three time sources are:
@@ -1149,25 +1312,36 @@ void ShrinkDebugFile()
 //  - Median of other nodes clocks
 //  - The user (asking the user to fix the system clock if the first two disagree)
 //
-static int64_t nMockTime = 0;  // For unit testing
 
+// System clock
 int64_t GetTime()
 {
-    if (nMockTime) return nMockTime;
-
     return time(NULL);
 }
 
-void SetMockTime(int64_t nMockTimeIn)
-{
-    nMockTime = nMockTimeIn;
-}
+// Trusted NTP offset or median of NTP samples.
+extern int64_t nNtpOffset;
 
-static int64_t nTimeOffset = 0;
+// Median of time samples given by other nodes.
+static int64_t nNodesOffset = INT64_MAX;
 
+// Select time offset:
 int64_t GetTimeOffset()
 {
-    return nTimeOffset;
+    // If NTP and system clock are in agreement within 40 minutes, then use NTP.
+    if (abs64(nNtpOffset) < 40 * 60)
+        return nNtpOffset;
+
+    // If not, then choose between median peer time and system clock.
+    if (abs64(nNodesOffset) < 70 * 60)
+        return nNodesOffset;
+
+    return 0;
+}
+
+int64_t GetNodesOffset()
+{
+        return nNodesOffset;
 }
 
 int64_t GetAdjustedTime()
@@ -1186,25 +1360,7 @@ void AddTimeData(const CNetAddr& ip, int64_t nTime)
 
     // Add data
     vTimeOffsets.input(nOffsetSample);
-    printf("Added time data, samples %d, offset %+"PRId64" (%+"PRId64" minutes)\n", vTimeOffsets.size(), nOffsetSample, nOffsetSample/60);
-
-    // There is a known issue here (see issue #4521):
-    //
-    // - The structure vTimeOffsets contains up to 200 elements, after which
-    // any new element added to it will not increase its size, replacing the
-    // oldest element.
-    //
-    // - The condition to update nTimeOffset includes checking whether the
-    // number of elements in vTimeOffsets is odd, which will never happen after
-    // there are 200 elements.
-    //
-    // But in this case the 'bug' is protective against some attacks, and may
-    // actually explain why we've never seen attacks which manipulate the
-    // clock offset.
-    //
-    // So we should hold off on fixing this and clean it up as part of
-    // a timing cleanup that strengthens it in a number of other ways.
-    //
+    printf("Added time data, samples %d, offset %+" PRId64 " (%+" PRId64 " minutes)\n", vTimeOffsets.size(), nOffsetSample, nOffsetSample/60);
     if (vTimeOffsets.size() >= 5 && vTimeOffsets.size() % 2 == 1)
     {
         int64_t nMedian = vTimeOffsets.median();
@@ -1212,17 +1368,18 @@ void AddTimeData(const CNetAddr& ip, int64_t nTime)
         // Only let other nodes change our time by so much
         if (abs64(nMedian) < 70 * 60)
         {
-            nTimeOffset = nMedian;
+            nNodesOffset = nMedian;
         }
         else
         {
-            nTimeOffset = 0;
+            nNodesOffset = INT64_MAX;
 
             static bool fDone;
             if (!fDone)
             {
-                // If nobody has a time different than ours but within 5 minutes of ours, give a warning
                 bool fMatch = false;
+
+                // If nobody has a time different than ours but within 5 minutes of ours, give a warning
                 BOOST_FOREACH(int64_t nOffset, vSorted)
                     if (nOffset != 0 && abs64(nOffset) < 5 * 60)
                         fMatch = true;
@@ -1239,31 +1396,11 @@ void AddTimeData(const CNetAddr& ip, int64_t nTime)
         }
         if (fDebug) {
             BOOST_FOREACH(int64_t n, vSorted)
-                printf("%+"PRId64"  ", n);
+                printf("%+" PRId64 "  ", n);
             printf("|  ");
         }
-        printf("nTimeOffset = %+"PRId64"  (%+"PRId64" minutes)\n", nTimeOffset, nTimeOffset/60);
-    }
-}
-
-uint32_t insecure_rand_Rz = 11;
-uint32_t insecure_rand_Rw = 11;
-void seed_insecure_rand(bool fDeterministic)
-{
-    //The seed values have some unlikely fixed points which we avoid.
-    if(fDeterministic)
-    {
-        insecure_rand_Rz = insecure_rand_Rw = 11;
-    } else {
-        uint32_t tmp;
-        do{
-            RAND_bytes((unsigned char*)&tmp,4);
-        }while(tmp==0 || tmp==0x9068ffffU);
-        insecure_rand_Rz=tmp;
-        do{
-            RAND_bytes((unsigned char*)&tmp,4);
-        }while(tmp==0 || tmp==0x464fffffU);
-        insecure_rand_Rw=tmp;
+        if (nNodesOffset != INT64_MAX)
+            printf("nNodesOffset = %+" PRId64 "  (%+" PRId64 " minutes)\n", nNodesOffset, nNodesOffset/60);
     }
 }
 
@@ -1347,4 +1484,14 @@ bool NewThread(void(*pfn)(void*), void* parg)
         return false;
     }
     return true;
+}
+
+std::string DateTimeStrFormat(const char* pszFormat, int64_t nTime)
+{
+    // std::locale takes ownership of the pointer
+    std::locale loc(std::locale::classic(), new boost::posix_time::time_facet(pszFormat));
+    std::stringstream ss;
+    ss.imbue(loc);
+    ss << boost::posix_time::from_time_t(nTime);
+    return ss.str();
 }

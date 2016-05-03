@@ -31,7 +31,7 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, Object& out, bool fIncludeH
 
     if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired))
     {
-        out.push_back(Pair("type", GetTxnOutputType(type)));
+        out.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
         return;
     }
 
@@ -44,14 +44,12 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, Object& out, bool fIncludeH
     out.push_back(Pair("addresses", a));
 }
 
-void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
+void TxToJSON(const CTransaction& tx, const uint256& hashBlock, Object& entry)
 {
     entry.push_back(Pair("txid", tx.GetHash().GetHex()));
     entry.push_back(Pair("version", tx.nVersion));
     entry.push_back(Pair("time", (int64_t)tx.nTime));
     entry.push_back(Pair("locktime", (int64_t)tx.nLockTime));
-    entry.push_back(Pair("tx-data", tx.data));
-
     Array vin;
     BOOST_FOREACH(const CTxIn& txin, tx.vin)
     {
@@ -79,7 +77,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         out.push_back(Pair("value", ValueFromAmount(txout.nValue)));
         out.push_back(Pair("n", (int64_t)i));
         Object o;
-        ScriptPubKeyToJSON(txout.scriptPubKey, o, false);
+        ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
         out.push_back(Pair("scriptPubKey", o));
         vout.push_back(out);
     }
@@ -211,7 +209,7 @@ Value listunspent(const Array& params, bool fHelp)
             CTxDestination address;
             if (ExtractDestination(pk, address))
             {
-                const CScriptID& hash = boost::get<const CScriptID&>(address);
+                const CScriptID& hash = boost::get<CScriptID>(address);
                 CScript redeemScript;
                 if (pwalletMain->GetCScript(hash, redeemScript))
                     entry.push_back(Pair("redeemScript", HexStr(redeemScript.begin(), redeemScript.end())));
@@ -219,6 +217,7 @@ Value listunspent(const Array& params, bool fHelp)
         }
         entry.push_back(Pair("amount",ValueFromAmount(nValue)));
         entry.push_back(Pair("confirmations",out.nDepth));
+        entry.push_back(Pair("spendable", out.fSpendable));
         results.push_back(entry);
     }
 
@@ -229,7 +228,7 @@ Value createrawtransaction(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() != 2)
         throw runtime_error(
-            "createrawtransaction [{\"txid\":txid,\"vout\":n},...] {address:amount,...}\n"
+            "createrawtransaction '[{\"txid\":txid,\"vout\":n},...]' '{address:amount,...}'\n"
             "Create a transaction spending given inputs\n"
             "(array of objects containing transaction id and output number),\n"
             "sending to given address(es).\n"
@@ -305,7 +304,7 @@ Value decoderawtransaction(const Array& params, bool fHelp)
     try {
         ssData >> tx;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
 
@@ -342,7 +341,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1 || params.size() > 4)
         throw runtime_error(
-            "signrawtransaction <hex string> [{\"txid\":txid,\"vout\":n,\"scriptPubKey\":hex,\"redeemScript\":hex},...] [<privatekey1>,...] [sighashtype=\"ALL\"]\n"
+            "signrawtransaction <hex string> '[{\"txid\":txid,\"vout\":n,\"scriptPubKey\":hex,\"redeemScript\":hex},...]' '[<privatekey1>,...]' [sighashtype=\"ALL\"]\n"
             "Sign inputs for raw transaction (serialized, hex-encoded).\n"
             "Second optional argument (may be null) is an array of previous transaction outputs that\n"
             "this transaction depends on but may not yet be in the blockchain.\n"
@@ -367,7 +366,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
             ssData >> tx;
             txVariants.push_back(tx);
         }
-        catch (std::exception &e) {
+        catch (const std::exception&) {
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
         }
     }
@@ -471,6 +470,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
 
             // if redeemScript given and not using the local wallet (private keys
             // given), add redeemScript to the tempKeystore so it can be signed:
+            Value v = find_value(prevOut, "redeemScript");
             if (fGivenKeys && scriptPubKey.IsPayToScriptHash())
             {
                 RPCTypeCheck(prevOut, map_list_of("txid", str_type)("vout", int_type)("scriptPubKey", str_type)("redeemScript",str_type));
@@ -529,7 +529,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
         {
             txin.scriptSig = CombineSignatures(prevPubKey, mergedTx, i, txin.scriptSig, txv.vin[i].scriptSig);
         }
-        if (!VerifyScript(txin.scriptSig, prevPubKey, mergedTx, i, 0))
+        if (!VerifyScript(txin.scriptSig, prevPubKey, mergedTx, i, STRICT_FLAGS, 0))
             fComplete = false;
     }
 
@@ -560,7 +560,7 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     try {
         ssData >> tx;
     }
-    catch (std::exception &e) {
+    catch (const std::exception&) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
     uint256 hashTx = tx.GetHash();
@@ -579,7 +579,8 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     else
     {
         // push to local node
-        if (!AcceptToMemoryPool(mempool, tx, NULL))
+        CTxDB txdb("r");
+        if (!tx.AcceptToMemoryPool(txdb))
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX rejected");
 
         SyncWithWallets(tx, NULL, true);
@@ -587,4 +588,80 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     RelayTransaction(tx, hashTx);
 
     return hashTx.GetHex();
+}
+
+Value createmultisig(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 2 || params.size() > 3)
+    {
+        string msg = "createmultisig <nrequired> <'[\"key\",\"key\"]'>\n"
+            "\nCreates a multi-signature address with n signature of m keys required.\n"
+            "It returns a json object with the address and redeemScript.";
+        throw runtime_error(msg);
+    }
+
+    int nRequired = params[0].get_int();
+    const Array& keys = params[1].get_array();
+    string strAccount;
+
+    // Gather public keys
+    if (nRequired < 1)
+        throw runtime_error("a multisignature address must require at least one key to redeem");
+    if ((int)keys.size() < nRequired)
+        throw runtime_error(
+            strprintf("not enough keys supplied "
+                      "(got %" PRIszu " keys, but need at least %d to redeem)", keys.size(), nRequired));
+    if (keys.size() > 16)
+        throw runtime_error("Number of addresses involved in the multisignature address creation > 16\nReduce the number");
+    std::vector<CKey> pubkeys;
+    pubkeys.resize(keys.size());
+    for (unsigned int i = 0; i < keys.size(); i++)
+    {
+        const std::string& ks = keys[i].get_str();
+
+        // Case 1: Bitcoin address and we have full public key:
+        CBitcoinAddress address(ks);
+        if (address.IsValid())
+        {
+            CKeyID keyID;
+            if (!address.GetKeyID(keyID))
+                throw runtime_error(
+                    strprintf("%s does not refer to a key",ks.c_str()));
+            CPubKey vchPubKey;
+            if (!pwalletMain->GetPubKey(keyID, vchPubKey))
+                throw runtime_error(
+                    strprintf("no full public key for address %s",ks.c_str()));
+            if (!vchPubKey.IsValid() || !pubkeys[i].SetPubKey(vchPubKey))
+                throw runtime_error(" Invalid public key: "+ks);
+        }
+
+        // Case 2: hex public key
+        else if (IsHex(ks))
+        {
+            CPubKey vchPubKey(ParseHex(ks));
+            if (!vchPubKey.IsValid() || !pubkeys[i].SetPubKey(vchPubKey))
+                throw runtime_error(" Invalid public key: "+ks);
+        }
+        else
+        {
+            throw runtime_error(" Invalid public key: "+ks);
+        }
+    }
+
+    // Construct using pay-to-script-hash:
+    CScript inner;
+    inner.SetMultisig(nRequired, pubkeys);
+
+    if (inner.size() > MAX_SCRIPT_ELEMENT_SIZE)
+        throw runtime_error(
+            strprintf("redeemScript exceeds size limit: %" PRIszu " > %d", inner.size(), MAX_SCRIPT_ELEMENT_SIZE));
+
+    CScriptID innerID = inner.GetID();
+    CBitcoinAddress address(innerID);
+
+    Object result;
+    result.push_back(Pair("address", address.ToString()));
+    result.push_back(Pair("redeemScript", HexStr(inner.begin(), inner.end())));
+
+    return result;
 }

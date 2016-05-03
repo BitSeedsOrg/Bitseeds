@@ -5,12 +5,12 @@ SetCompressor /SOLID lzma
 
 # General Symbol Definitions
 !define REGKEY "SOFTWARE\$(^Name)"
-!define VERSION 0.7.0.1
-!define COMPANY "BitSeeds Foundation"
-!define URL http://www.bitseeds.org/
+!define VERSION 0.3.0
+!define COMPANY "BitSeeds project"
+!define URL http://www.BitSeeds.ru/
 
 # MUI Symbol Definitions
-!define MUI_ICON "../share/pixmaps/bitcoin.ico"
+!define MUI_ICON "../share/pixmaps/BitSeeds.ico"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "../share/pixmaps/nsis-wizard.bmp"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_RIGHT
@@ -19,8 +19,8 @@ SetCompressor /SOLID lzma
 !define MUI_STARTMENUPAGE_REGISTRY_ROOT HKLM
 !define MUI_STARTMENUPAGE_REGISTRY_KEY ${REGKEY}
 !define MUI_STARTMENUPAGE_REGISTRY_VALUENAME StartMenuGroup
-!define MUI_STARTMENUPAGE_DEFAULTFOLDER bitseeds
-#!define MUI_FINISHPAGE_RUN $INSTDIR\bitseeds-qt.exe
+!define MUI_STARTMENUPAGE_DEFAULTFOLDER BitSeeds
+#!define MUI_FINISHPAGE_RUN $INSTDIR\BitSeeds-qt.exe
 !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "../share/pixmaps/nsis-wizard.bmp"
 !define MUI_UNFINISHPAGE_NOAUTOCLOSE
@@ -30,7 +30,7 @@ SetCompressor /SOLID lzma
 !include MUI2.nsh
 
 # Variables
-Var StartMenuGroup 
+Var StartMenuGroup
 
 # Installer pages
 !insertmacro MUI_PAGE_WELCOME
@@ -45,20 +45,20 @@ Var StartMenuGroup
 !insertmacro MUI_LANGUAGE English
 
 # Installer attributes
-OutFile bitseeds-official-win32.exe
-InstallDir $PROGRAMFILES\bitseeds
+OutFile BitSeeds-0.3.0-win32-setup.exe
+InstallDir $PROGRAMFILES\BitSeeds
 CRCCheck on
 XPStyle on
-BrandingText "A Currency That Grows!"
+BrandingText " "
 ShowInstDetails show
-VIProductVersion 0.7.0.1
+VIProductVersion 0.3.0.0
 VIAddVersionKey ProductName BitSeeds
 VIAddVersionKey ProductVersion "${VERSION}"
 VIAddVersionKey CompanyName "${COMPANY}"
 VIAddVersionKey CompanyWebsite "${URL}"
 VIAddVersionKey FileVersion "${VERSION}"
 VIAddVersionKey FileDescription ""
-VIAddVersionKey LegalCopyright "Copyright 2015 The BitSeeds Developers"
+VIAddVersionKey LegalCopyright ""
 InstallDirRegKey HKCU "${REGKEY}" Path
 ShowUninstDetails show
 
@@ -66,17 +66,18 @@ ShowUninstDetails show
 Section -Main SEC0000
     SetOutPath $INSTDIR
     SetOverwrite on
-    File ../release/bitseeds-qt.exe
+    #File ../release/BitSeeds-qt.exe
+    File /oname=license.txt ../COPYING
+    File /oname=readme.txt ../doc/README_windows.txt
     SetOutPath $INSTDIR\daemon
-    File ../src/bitseedsd.exe
+    File ../src/BitSeedsd.exe
     SetOutPath $INSTDIR\src
-    File /r /x *.exe /x *.o ../src\*.* 
+    File /r /x *.exe /x *.o ../src\*.*
     SetOutPath $INSTDIR
-    File ../release/libwinpthread-1.dll
     WriteRegStr HKCU "${REGKEY}\Components" Main 1
 
-    # Remove old wxwidgets-based-bitcoin executable and locales:
-    #Delete /REBOOTOK $INSTDIR\bitseeds.exe
+    # Remove old wxwidgets-based-BitSeeds executable and locales:
+    #Delete /REBOOTOK $INSTDIR\BitSeeds.exe
     #RMDir /r /REBOOTOK $INSTDIR\locale
 SectionEnd
 
@@ -86,8 +87,7 @@ Section -post SEC0001
     WriteUninstaller $INSTDIR\uninstall.exe
     !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
     CreateDirectory $SMPROGRAMS\$StartMenuGroup
-    CreateShortcut "$SMPROGRAMS\$StartMenuGroup\Uninstall bitseeds.lnk" $INSTDIR\uninstall.exe
-    CreateShortcut "$SMPROGRAMS\$StartMenuGroup\BitSeeds.lnk" $INSTDIR\bitseeds-qt.exe
+    CreateShortcut "$SMPROGRAMS\$StartMenuGroup\Uninstall BitSeeds.lnk" $INSTDIR\uninstall.exe
     !insertmacro MUI_STARTMENU_WRITE_END
     WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" DisplayName "$(^Name)"
     WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" DisplayVersion "${VERSION}"
@@ -98,20 +98,11 @@ Section -post SEC0001
     WriteRegDWORD HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" NoModify 1
     WriteRegDWORD HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" NoRepair 1
 
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" DisplayName "$(^Name)"
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" DisplayVersion "${VERSION}"
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" Publisher "${COMPANY}"
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" URLInfoAbout "${URL}"
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" DisplayIcon $INSTDIR\bitseeds-qt.exe
-    WriteRegStr HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" UninstallString $INSTDIR\bitseeds-qt.exe
-    WriteRegDWORD HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" NoModify 1
-    WriteRegDWORD HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)" NoRepair 1
-
-    # bitcoin: URI handling disabled for 0.6.0
-    #    WriteRegStr HKCR "bitseeds" "URL Protocol" ""
-    #    WriteRegStr HKCR "bitseeds" "" "URL:bitseeds"
-    #    WriteRegStr HKCR "bitseeds\DefaultIcon" "" $INSTDIR\bitseeds-qt.exe
-    #    WriteRegStr HKCR "bitseeds\shell\open\command" "" '"$INSTDIR\bitseeds-qt.exe" "$$1"'
+    # BitSeeds: URI handling disabled for 0.6.0
+    #    WriteRegStr HKCR "BitSeeds" "URL Protocol" ""
+    #    WriteRegStr HKCR "BitSeeds" "" "URL:BitSeeds"
+    #    WriteRegStr HKCR "BitSeeds\DefaultIcon" "" $INSTDIR\BitSeeds-qt.exe
+    #    WriteRegStr HKCR "BitSeeds\shell\open\command" "" '"$INSTDIR\BitSeeds-qt.exe" "$$1"'
 SectionEnd
 
 # Macro for selecting uninstaller sections
@@ -129,7 +120,7 @@ done${UNSECTION_ID}:
 
 # Uninstaller sections
 Section /o -un.Main UNSEC0000
-    Delete /REBOOTOK $INSTDIR\bitseeds-qt.exe
+    #Delete /REBOOTOK $INSTDIR\BitSeeds-qt.exe
     Delete /REBOOTOK $INSTDIR\license.txt
     Delete /REBOOTOK $INSTDIR\readme.txt
     RMDir /r /REBOOTOK $INSTDIR\daemon
@@ -140,19 +131,18 @@ SectionEnd
 Section -un.post UNSEC0001
     DeleteRegKey HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$(^Name)"
     Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\Uninstall BitSeeds.lnk"
-    Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\BitSeeds.lnk"
+    #Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\BitSeeds.lnk"
     #Delete /REBOOTOK "$SMSTARTUP\BitSeeds.lnk"
-    Delete /REBOOTOK $INSTDIR\uninstall.exe
     Delete /REBOOTOK $INSTDIR\uninstall.exe
     Delete /REBOOTOK $INSTDIR\debug.log
     Delete /REBOOTOK $INSTDIR\db.log
-    Delete /REBOOTOK $INSTDIR\libwinpthread-1.dll
     DeleteRegValue HKCU "${REGKEY}" StartMenuGroup
     DeleteRegValue HKCU "${REGKEY}" Path
     DeleteRegKey /IfEmpty HKCU "${REGKEY}\Components"
     DeleteRegKey /IfEmpty HKCU "${REGKEY}"
     DeleteRegKey HKCR "BitSeeds"
     RmDir /REBOOTOK $SMPROGRAMS\$StartMenuGroup
+    RmDir /REBOOTOK $INSTDIR
     Push $R0
     StrCpy $R0 $StartMenuGroup 1
     StrCmp $R0 ">" no_smgroup

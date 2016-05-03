@@ -11,6 +11,9 @@
 #include <QDateTime>
 #include <QTimer>
 
+extern double GetPoSKernelPS();
+extern double GetDifficulty(const CBlockIndex* blockindex);
+
 static const int64_t nClientStartupTime = GetTime();
 
 ClientModel::ClientModel(OptionsModel *optionsModel, QObject *parent) :
@@ -32,14 +35,35 @@ ClientModel::~ClientModel()
     unsubscribeFromCoreSignals();
 }
 
-int ClientModel::getNumConnections() const
+double ClientModel::getPoSKernelPS()
 {
-    return vNodes.size();
+    return GetPoSKernelPS();
+}
+
+double ClientModel::getDifficulty(bool fProofofStake)
+{
+    if (fProofofStake)
+       return GetDifficulty(GetLastBlockIndex(pindexBest,true));
+    else
+       return GetDifficulty(GetLastBlockIndex(pindexBest,false));
+}
+
+int ClientModel::getNumConnections(uint8_t flags) const
+{
+    LOCK(cs_vNodes);
+    if (flags == CONNECTIONS_ALL) // Shortcut if we want total
+        return (int)(vNodes.size());
+
+    int nNum = 0;
+    BOOST_FOREACH(CNode* pnode, vNodes)
+    if (flags & (pnode->fInbound ? CONNECTIONS_IN : CONNECTIONS_OUT))
+        nNum++;
+
+    return nNum;
 }
 
 int ClientModel::getNumBlocks() const
 {
-    LOCK(cs_main);
     return nBestHeight;
 }
 
@@ -61,21 +85,14 @@ quint64 ClientModel::getTotalBytesSent() const
 
 QDateTime ClientModel::getLastBlockDate() const
 {
-    LOCK(cs_main);
     if (pindexBest)
         return QDateTime::fromTime_t(pindexBest->GetBlockTime());
     else
-        return QDateTime::fromTime_t(1393221600); // Genesis block's time
+        return QDateTime::fromTime_t(1360105017); // Genesis block's time
 }
 
 void ClientModel::updateTimer()
 {
-    // Get required lock upfront. This avoids the GUI from getting stuck on
-    // periodical polls if the core is holding the locks for a longer time -
-    // for example, during a wallet rescan.
-    TRY_LOCK(cs_main, lockMain);
-    if(!lockMain)
-        return;
     // Some quantities (such as number of blocks) change so fast that we don't want to be notified for each change.
     // Periodically check and update with a timer.
     int newNumBlocks = getNumBlocks();
