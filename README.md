@@ -22,7 +22,10 @@ http://explore.cryptolife.net/bitseeds/index.php [this is the old chain explorer
 <a name="download-bitseeds"></a>
 <p align=center><h3>Download links:</h3></p>
 
-<h1> Downloads are disabled temporarily until the new version 2.0 is released -- ETA Tuesday May 3rd</h1>
+<p align=center><b>Bitseeds for Windows PCs:</b><BR><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-windows.zip"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-windows.gif" align=center></a></p>
+
+
+<h2> Mac wallet app is coming in the next ~24 hours</h2>
 
 </center>
 
