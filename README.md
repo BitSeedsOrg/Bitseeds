@@ -2,7 +2,7 @@ BitSeeds
 ========
 This is the official Bitseeds repository as of September 2015. 
 
-POW has been restored, mining is being tested privately with zero reward blocks until block 2017 when we'll open mining up to the public with an initial low block reward of 0.025 XSEED per block for the next 2016 blocks (approximately 1 week) and then from there it will go to the full 10 XSEED per block and the original reduction schedule.
+POW has been restored, mining is working with zero reward blocks until block 2017 when we'll transition to full mining with an initial low block reward of 0.025 XSEED per block for the next 2016 blocks (approximately 1 week) and then from there it will go to the full 10 XSEED per block and the original reduction schedule over the next ~99 years.
 
 Main website: 
 http://bitseeds.org
