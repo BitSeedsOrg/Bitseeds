@@ -25,7 +25,7 @@ http://explore.cryptolife.net/bitseeds/index.php [this is the old chain explorer
 <p align=center><b>Bitseeds for Windows PCs:</b><BR><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-windows.zip"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-windows.gif" align=center></a></p>
 
 
-<h2> Mac wallet app is coming in the next ~24 hours</h2>
+<h2 align=center> Mac wallet app is coming in the next ~24 hours</h2>
 
 </center>
 
