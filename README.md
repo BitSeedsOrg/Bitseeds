@@ -25,7 +25,7 @@ http://explore.cryptolife.net/bitseeds/index.php
 
 <p align=center><b>Bitseeds for Windows PCs:</b><BR><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-windows.zip"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-windows.gif" align=center></a></p>
 
-<p align=center><b>Bitseeds for Apple Macs:</b><br><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-Mac.dmg"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-macs.gif"></a></P>
+<p align=center><b>Bitseeds for Apple Macs:</b><br><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-Mac.dmg"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-mac.gif"></a></P>
 
 </center>
 
