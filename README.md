@@ -16,7 +16,8 @@ https://bitcointalk.org/index.php?topic=1195172.0
 
 
 Bitseeds Blockchain Explorer:
-http://explore.cryptolife.net/bitseeds/index.php [this is the old chain explorer, will be replaced in a few days with the new one]
+http://explore.cryptolife.net/bitseeds/index.php 
+[this is the old chain explorer, will be replaced this week with the new one]
 
 
 <a name="download-bitseeds"></a>
@@ -24,8 +25,7 @@ http://explore.cryptolife.net/bitseeds/index.php [this is the old chain explorer
 
 <p align=center><b>Bitseeds for Windows PCs:</b><BR><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-windows.zip"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-windows.gif" align=center></a></p>
 
-
-<h2 align=center> Mac wallet app is coming in the next ~24 hours</h2>
+<p align=center><b>Bitseeds for Apple Macs:</b><br><a href="http://bitseeds.s3.amazonaws.com/BitSeeds-2.0-Mac.dmg"><img src="http://bitseeds.s3.amazonaws.com/bitseeds-download-button-macs.gif"></a></P>
 
 </center>
 
