@@ -2,7 +2,7 @@ BitSeeds
 ========
 This is the official Bitseeds repository as of September 2015. 
 
-POW has been restored, mining is working with zero reward blocks until block 2017 when we'll transition to full mining with an initial low block reward of 0.025 XSEED per block for the next 2016 blocks (approximately 1 week) and then from there it will go to the full 10 XSEED per block and the original reduction schedule over the next ~99 years.
+POW has been restored since May, 2016 with 10 XSEED per block and the original planned reduction schedule reducing 0.025 XSEED every 90 days for a total of 400 times over the next ~99 years.
 
 Main website: 
 http://bitseeds.org
@@ -16,8 +16,8 @@ https://bitcointalk.org/index.php?topic=1195172.0
 
 
 Bitseeds Blockchain Explorer:
-http://explore.cryptolife.net/bitseeds/index.php 
-[this is the old chain explorer, will be replaced this week with the new one]
+http://electrum2.cryptolife.net/bitseeds-new/
+[this is the new chain explorer, will be replaced shortly with a more advanced Iquidus-based one w rich list, etc.]
 
 
 <a name="download-bitseeds"></a>
